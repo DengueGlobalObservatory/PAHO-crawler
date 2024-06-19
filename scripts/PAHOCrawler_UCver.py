@@ -93,14 +93,19 @@ def iterate_weekly():
     # set directory
     # default_dir = 'C:/Users/AhyoungLim/Downloads'  
     github_workspace = os.path.join(os.getenv('GITHUB_WORKSPACE'), 'data')
-    default_dir = "/tmp/downloads"
+    default_dir = os.getcwd()
 
     today_directory_name = f"DL_{datetime.now().strftime('%Y%m%d')}"
     downloadPath = os.path.join(github_workspace, today_directory_name)
     os.makedirs(downloadPath, exist_ok=True) # create a new directory 
-         
+
+    # set chrome download directory
+    chrome_options = uc.ChromeOptions()
+    prefs = {"download.default_directory": os.getcwd()}
+    chrome_options.add_experimental_option("prefs", prefs)
+
     # using undetected-chromedriver
-    driver = uc.Chrome(headless=True, use_subprocess=False)
+    driver = uc.Chrome(headless=True, use_subprocess=False, options = chrome_options)     
     driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
     
     # Define wait outside the loop

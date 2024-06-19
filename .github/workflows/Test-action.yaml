@@ -1,4 +1,4 @@
-name: PAHO web crawling on Github Action
+name: Testing Downloads on Github Action 
 on:
   workflow_dispatch:
   schedule:
