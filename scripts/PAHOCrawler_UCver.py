@@ -92,11 +92,11 @@ def iterate_weekly():
 
     # set directory
     # default_dir = 'C:/Users/AhyoungLim/Downloads'  
-    github_workspace = os.getenv('GITHUB_WORKSPACE')
-    default_dir = os.path.join(github_workspace, 'data')
+    github_workspace = os.path.join(os.getenv('GITHUB_WORKSPACE'), 'data')
+    default_dir = "/tmp/downloads"
 
     today_directory_name = f"DL_{datetime.now().strftime('%Y%m%d')}"
-    downloadPath = os.path.join(default_dir, today_directory_name)
+    downloadPath = os.path.join(github_workspace, today_directory_name)
     os.makedirs(downloadPath, exist_ok=True) # create a new directory 
          
     # using undetected-chromedriver
