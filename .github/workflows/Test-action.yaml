@@ -26,7 +26,7 @@ jobs:
             
                    
       - name: Running the Python script
-        run: python scripts/PAHOCrawler_UCver.py
+        run: python scripts/Test.py
         
       - name: Commit and Push 
         run: |
@@ -34,7 +34,7 @@ jobs:
          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
          git add -A
          timestamp=$(date -u)
-         git commit -am "Latest data: ${timestamp}" || exit 0
+         git commit -am "Data downloaded: ${timestamp}" || exit 0
          git push
 
         
