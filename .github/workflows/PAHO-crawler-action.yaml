@@ -19,6 +19,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install selenium
           pip install undetected_chromedriver
+          pip install setuptools
         
       - name: Create Downloads directory
         run: mkdir -p ${{ github.workspace }}/data
