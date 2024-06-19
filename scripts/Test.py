@@ -9,6 +9,28 @@ import time
 import os
 from datetime import datetime
 
+def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtension):
+    got_file = False   
+    while not got_file:
+        try: 
+            # Use glob to get the current file name
+            currentFile = max([default_dir + "/" + f for f in os.listdir(default_dir)], key=os.path.getctime)
+
+            #if len(currentFiles) > 0:
+            #currentFile = currentFiles[0]  # Assuming there's only one file matching the pattern
+            got_file = True
+        except Exception as e:
+            print("File has not finished downloading")
+            time.sleep(5)
+
+    # Create new file name
+    fileDestination = os.path.join(downloadPath, newFileName + fileExtension)
+
+    # Move the file
+    os.rename(currentFile, fileDestination)
+    print(f"Moved file to {fileDestination}")
+
+
 today = datetime.now().strftime('%Y%m%d%H%m') # current date and time
 
 # set directory
@@ -63,3 +85,9 @@ driver.execute_script("arguments[0].scrollIntoView();", download_all_data_button
 driver.execute_script("arguments[0].click();", download_all_data_button)
 
 time.sleep(5)
+
+# Use the move_to_download_folder function to move the downloaded file
+newFileName = "newFileName"  # Base filename
+fileExtension = '.csv'  # File extension
+move_to_download_folder(default_dir, downloadPath, newFileName, fileExtension)
+
