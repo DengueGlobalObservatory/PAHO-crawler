@@ -84,8 +84,6 @@ def download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, d
 
 
 def iterate_weekly(): 
-    #driver = webdriver.Chrome(service=Service(), options=chrome_options)  # Ensure chrome_options is defined
-    #driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
     
     year = 2023 # choose year to download
     today = datetime.now().strftime('%Y%m%d%H%m') # current date and time
@@ -107,6 +105,9 @@ def iterate_weekly():
     # using undetected-chromedriver
     driver = uc.Chrome(headless=True, use_subprocess=False, options = chrome_options)     
     driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
+
+    #driver = webdriver.Chrome(service=Service(), options=chrome_options)  # Ensure chrome_options is defined
+    #driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
     
     # Define wait outside the loop
     wait = WebDriverWait(driver, 20)
@@ -143,8 +144,8 @@ def iterate_weekly():
     dd_open.click()   
     
     # remove selection of year 2024
-    y2024_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2024"]/preceding-sibling::input'
-    shadow_doc2.find_element(By.XPATH, y2024_xpath).click()
+    # y2024_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2024"]/preceding-sibling::input'
+    # shadow_doc2.find_element(By.XPATH, y2024_xpath).click()
     
     # select the year of interest
     year_xpath = f'//div[contains(@class, "facetOverflow")]//a[text()="{year}"]/preceding-sibling::input'
