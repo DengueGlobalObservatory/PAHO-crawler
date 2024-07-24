@@ -89,13 +89,14 @@ def download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, d
 
 def iterate_weekly(): 
     
-    year = "2023_2024" # choose year to download
+    year = "2023" # choose year to download
     today = datetime.now().strftime('%Y%m%d%H%m') # current date and time
 
     # set directory
-    # default_dir = 'C:/Users/AhyoungLim/Downloads'  
-    github_workspace = os.path.join(os.getenv('GITHUB_WORKSPACE'), 'data')
-    default_dir = os.getcwd()
+    # github_workspace = os.path.join(os.getenv('GITHUB_WORKSPACE'), 'data')
+    # default_dir = os.getcwd()
+    github_workspace = 'C:/Users/user/Dropbox/WORK/OpenDengue/PAHO-crawler'
+    default_dir = 'C:/Users/user/Downloads'  
 
     today_directory_name = f"DL_{datetime.now().strftime('%Y%m%d')}"
     downloadPath = os.path.join(github_workspace, today_directory_name)
