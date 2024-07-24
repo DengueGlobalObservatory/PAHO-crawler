@@ -9,8 +9,8 @@ import time
 import os
 from datetime import datetime
 
-from webdriver_manager.chrome import ChromeDriverManager
-driver_executable_path = ChromeDriverManager().install()
+#from webdriver_manager.chrome import ChromeDriverManager
+#driver_executable_path = ChromeDriverManager().install()
 #https://github.com/ultrafunkamsterdam/undetected-chromedriver/issues/1904
 
 def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtension):
@@ -107,7 +107,7 @@ def iterate_weekly():
     chrome_options.add_experimental_option("prefs", prefs)
 
     # using undetected-chromedriver
-    driver = uc.Chrome(headless=True, use_subprocess=False, options = chrome_options)     
+    driver = uc.Chrome(headless=True, use_subprocess=False, options = chrome_options, version_main=126)     
     driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
 
     #driver = webdriver.Chrome(service=Service(), options=chrome_options)  # Ensure chrome_options is defined
