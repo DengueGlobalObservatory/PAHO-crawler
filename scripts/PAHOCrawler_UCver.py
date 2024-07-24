@@ -9,6 +9,10 @@ import time
 import os
 from datetime import datetime
 
+from webdriver_manager.chrome import ChromeDriverManager
+driver_executable_path = ChromeDriverManager().install()
+#https://github.com/ultrafunkamsterdam/undetected-chromedriver/issues/1904
+
 def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtension):
     got_file = False   
     while not got_file:
@@ -85,7 +89,7 @@ def download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, d
 
 def iterate_weekly(): 
     
-    year = 2023 # choose year to download
+    year = "2023_2024" # choose year to download
     today = datetime.now().strftime('%Y%m%d%H%m') # current date and time
 
     # set directory
