@@ -8,6 +8,45 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 import os
 from datetime import datetime
+import subprocess
+import re
+import sys
+
+# Function to get the installed Chrome version
+def get_chrome_version():
+    try:
+        if sys.platform == "win32":
+            # Command to retrieve Chrome version from Windows registry
+            output = subprocess.check_output(
+                r'reg query "HKEY_CURRENT_USER\Software\Google\Chrome\BLBeacon" /v version',
+                shell=True, 
+                text=True
+            )
+            version = re.search(r'\s+version\s+REG_SZ\s+(\d+)\.', output)
+        else:  # Assuming Linux or other Unix-like systems
+            # Try different commands to retrieve Chrome version on Linux
+            for command in ['google-chrome --version', 'google-chrome-stable --version', 'chromium-browser --version']:
+                try:
+                    output = subprocess.check_output(command, shell=True, text=True)
+                    version = re.search(r'\b(\d+)\.', output)
+                    if version:
+                        break
+                except subprocess.CalledProcessError:
+                    continue
+            else:
+                raise RuntimeError("Could not determine Chrome version")
+
+        if version:
+            return int(version.group(1))
+        else:
+            raise ValueError("Could not parse Chrome version")
+    except Exception as e:
+        raise RuntimeError("Failed to get Chrome version") from e
+
+# Get the major version of Chrome installed
+chrome_version = get_chrome_version()
+
+
 
 #from webdriver_manager.chrome import ChromeDriverManager
 #driver_executable_path = ChromeDriverManager().install()
@@ -89,7 +128,7 @@ def download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, d
 
 def iterate_weekly(): 
     
-    year = 2023 # choose year to download
+    year = "2023" # choose year to download
     today = datetime.now().strftime('%Y%m%d%H%m') # current date and time
 
     # set directory
@@ -108,7 +147,7 @@ def iterate_weekly():
     chrome_options.add_experimental_option("prefs", prefs)
 
     # using undetected-chromedriver
-    driver = uc.Chrome(headless=True, use_subprocess=False, options = chrome_options, version_main=126)     
+    driver = uc.Chrome(headless=True, use_subprocess=False, options = chrome_options, version_main=chrome_version)     
     driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
 
     #driver = webdriver.Chrome(service=Service(), options=chrome_options)  # Ensure chrome_options is defined
@@ -189,3 +228,4 @@ def iterate_weekly():
     driver.quit()
 
 iterate_weekly()
+
