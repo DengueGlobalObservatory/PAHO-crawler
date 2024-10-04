@@ -59,9 +59,12 @@ def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtensio
             # Use glob to get the current file name
             currentFile = max([default_dir + "/" + f for f in os.listdir(default_dir)], key=os.path.getctime)
 
-            #if len(currentFiles) > 0:
-            #currentFile = currentFiles[0]  # Assuming there's only one file matching the pattern
-            got_file = True
+           # Ensure the file exists before proceeding
+            if os.path.exists(currentFile):
+                got_file = True
+            else:
+                raise FileNotFoundError("File not found. Retrying...")
+            
         except Exception as e:
             print("File has not finished downloading")
             time.sleep(10)
@@ -72,6 +75,7 @@ def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtensio
     # Move the file
     os.rename(currentFile, fileDestination)
     print(f"Moved file to {fileDestination}")
+    
 
  
 
