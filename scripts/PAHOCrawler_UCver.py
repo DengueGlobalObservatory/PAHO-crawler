@@ -191,13 +191,31 @@ def iterate_weekly():
     dd_open = year_tab.find_element(*dd_locator)
     dd_open.click()   
     
-    # remove selection of year 2024
-    # y2024_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2024"]/preceding-sibling::input'
-    # shadow_doc2.find_element(By.XPATH, y2024_xpath).click()
+    # select year 2024
+    y2024_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2024"]/preceding-sibling::input'
+    shadow_doc2.find_element(By.XPATH, y2024_xpath).click()
     
-    # select the year of interest
-    year_xpath = f'//div[contains(@class, "facetOverflow")]//a[text()="{year}"]/preceding-sibling::input'
-    shadow_doc2.find_element(By.XPATH, year_xpath).click()
+    # select the year of interest --> 2023 is already selected now
+    #year_xpath = f'//div[contains(@class, "facetOverflow")]//a[text()="{year}"]/preceding-sibling::input'
+    #shadow_doc2.find_element(By.XPATH, year_xpath).click()
+
+    # close the dropdown menu
+    dd_close = wait.until(
+        EC.element_to_be_clickable((By.CLASS_NAME, "tab-glass"))
+    )
+    dd_close.click()
+
+    time.sleep(3)
+
+    # Select all countries
+    region_tab = wait.until(EC.visibility_of_element_located((By.ID, 'tabZoneId9')))
+    # find the dropdown button within the year tab
+    dd_locator = (By.CSS_SELECTOR, 'span.tabComboBoxButton')
+    dd_open = region_tab.find_element(*dd_locator)
+    dd_open.click() 
+
+    rAll_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="(All)"]/preceding-sibling::input'
+    shadow_doc2.find_element(By.XPATH, rAll_xpath).click()
 
     # close the dropdown menu
     dd_close = wait.until(
