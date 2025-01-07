@@ -1,4 +1,4 @@
-name: PAHO web crawling on Github Action
+name: PAHO web crawling on Github Action (for OD update)
 on:
   workflow_dispatch:
 
@@ -25,7 +25,7 @@ jobs:
             
                    
       - name: Running the Python script
-        run: python scripts/PAHOCrawler_ODupdate.py
+        run: python scripts/PAHOCrawler_ODupdate_.py
         
       - name: Commit and Push 
         run: |
