@@ -1,4 +1,4 @@
-name: PAHO web crawling on Github Action
+name: PAHO web crawling on Github Action (for OD update)
 on:
   workflow_dispatch:
 
