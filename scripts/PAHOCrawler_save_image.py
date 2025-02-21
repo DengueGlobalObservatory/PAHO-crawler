@@ -83,7 +83,7 @@ default_dir = os.getcwd()
 #github_workspace = 'C:/Users/AhyoungLim/Dropbox/WORK/OpenDengue/PAHO-crawler/data'
 #default_dir = 'C:/Users/AhyoungLim/'  
 
-today_directory_name = f"OD_DL_{datetime.now().strftime('%Y%m%d')}"
+today_directory_name = f"Image_DL_{datetime.now().strftime('%Y%m%d')}"
 downloadPath = os.path.join(github_workspace, today_directory_name)
 os.makedirs(downloadPath, exist_ok=True) # create a new directory 
 
@@ -124,7 +124,7 @@ image.screenshot("image_in_iframe_resized.png")
 
 # Use the move_to_download_folder function to move the downloaded file
 today = datetime.now().strftime('%Y%m%d%H%m') # current date and time
-newFileName = f"PAHO__ByLastAvailableEpiWeek_{today}"  # Base filename
+newFileName = f"PAHO_ByLastAvailableEpiWeek_{today}"  # Base filename
 fileExtension = '.png'  # File extension
 
 move_to_download_folder(default_dir, downloadPath, newFileName, fileExtension)

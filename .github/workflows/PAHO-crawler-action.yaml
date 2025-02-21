@@ -1,7 +1,7 @@
 name: PAHO web crawling on Github Action
-on:
-  workflow_dispatch:
-  schedule:
+# on:
+#  workflow_dispatch:
+#  schedule:
 #    - cron: '00 08 * * *' # 08:00 am UTC every day
 
 jobs:
