@@ -191,13 +191,16 @@ def iterate_weekly():
     dd_open = year_tab.find_element(*dd_locator)
     dd_open.click()   
     
-    # select year 2024
+        # select year 2024
     y2024_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2024"]/preceding-sibling::input'
     shadow_doc2.find_element(By.XPATH, y2024_xpath).click()
+
+    y2023_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2023"]/preceding-sibling::input'
+    shadow_doc2.find_element(By.XPATH, y2023_xpath).click()
     
     # select the year of interest --> 2023 is already selected now
-    year_xpath = f'//div[contains(@class, "facetOverflow")]//a[text()="{year}"]/preceding-sibling::input'
-    shadow_doc2.find_element(By.XPATH, year_xpath).click()
+    #year_xpath = f'//div[contains(@class, "facetOverflow")]//a[text()="{year}"]/preceding-sibling::input'
+    #shadow_doc2.find_element(By.XPATH, year_xpath).click()
 
     # close the dropdown menu
     dd_close = wait.until(

@@ -189,6 +189,9 @@ def iterate_weekly():
     # select year 2024
     y2024_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2024"]/preceding-sibling::input'
     shadow_doc2.find_element(By.XPATH, y2024_xpath).click()
+
+    y2023_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2023"]/preceding-sibling::input'
+    shadow_doc2.find_element(By.XPATH, y2023_xpath).click()
     
     # select the year of interest
     # year_xpath = f'//div[contains(@class, "facetOverflow")]//a[text()="{year}"]/preceding-sibling::input'
