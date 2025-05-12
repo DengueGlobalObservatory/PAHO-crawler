@@ -301,84 +301,81 @@ def iterate_weekly():
         print("Closed year dropdown.")
         time.sleep(5)
 
-        # --- NEW: SET EPI WEEK TO 53 USING INCREMENT BUTTON ---
+        # --- ADJUST EPI WEEK TO STARTING WEEK (53) USING SLIDER BUTTONS ---
         print("-" * 30)
-        print("Setting Epidemiological Week to 53 using increment button...")
+        print("Adjusting Epidemiological Week to 53 using slider buttons...")
         TARGET_START_WEEK = 53
         SLIDER_TEXT_LOCATOR_WEEK = (By.CSS_SELECTOR, ".sliderText")
-        # Locator for the increment button of the week slider
         INCREMENT_BUTTON_LOCATOR = (By.XPATH, "//*[contains(@class, 'tableauArrowInc') or contains(@class, 'dijitSliderIncrementIconH')]")
-        # Locator for the decrement button (if needed to go down to 53, though less likely for this setup)
-        # DECREMENT_BUTTON_LOCATOR = (By.XPATH, "//*[contains(@class, 'tableauArrowDec') or contains(@class, 'dijitSliderDecrementIconH')]")
+        DECREMENT_BUTTON_LOCATOR = (By.XPATH, "//*[contains(@class, 'tableauArrowDec') or contains(@class, 'dijitSliderDecrementIconH')]")
 
-        max_increment_attempts = 70 # Safety break for incrementing (e.g., 52 clicks + buffer)
-        increment_attempts = 0
+        max_slider_adjust_attempts = 70 # Safety break (e.g., 52 clicks + buffer)
+        slider_adjust_attempts = 0
 
-        while increment_attempts < max_increment_attempts:
+        while slider_adjust_attempts < max_slider_adjust_attempts:
             try:
                 # Ensure slider text element is present and visible before reading
-                slider_text_elements = WebDriverWait(driver, 15).until(
+                slider_text_elements = WebDriverWait(driver, 20).until( # Increased wait for slider text
                     EC.presence_of_all_elements_located(SLIDER_TEXT_LOCATOR_WEEK)
                 )
                 visible_slider_text_element = next((elem for elem in slider_text_elements if elem.is_displayed()), None)
 
                 if not visible_slider_text_element:
-                    print("Error: Slider text element for week not visible. Cannot proceed with incrementing.")
-                    driver.save_screenshot("err_slider_text_not_visible_before_increment.png")
-                    raise Exception("Slider text for week not visible.")
+                    print("Error: Slider text element for week not visible. Cannot proceed with adjustment.")
+                    driver.save_screenshot(f"err_slider_text_not_visible_adj_attempt_{slider_adjust_attempts}.png")
+                    raise Exception("Slider text for week not visible during adjustment.")
 
                 current_week_text = visible_slider_text_element.text.strip()
                 cleaned_text = "".join(filter(str.isdigit, current_week_text))
 
                 if not cleaned_text:
                     print(f"Warning: Could not parse digits from slider text '{current_week_text}'. Retrying or check page state.")
-                    time.sleep(2) # Wait and retry reading
-                    increment_attempts += 1 # Count as an attempt
+                    time.sleep(3) # Wait and retry reading
+                    slider_adjust_attempts += 1
                     continue
 
                 current_week_value_read = int(cleaned_text)
                 print(f"Current week on slider: {current_week_value_read}")
 
                 if current_week_value_read == TARGET_START_WEEK:
-                    print(f"Successfully reached target week {TARGET_START_WEEK}.")
+                    print(f"Successfully reached target start week {TARGET_START_WEEK}.")
                     break
                 elif current_week_value_read < TARGET_START_WEEK:
                     print(f"Current week {current_week_value_read} < {TARGET_START_WEEK}. Clicking increment button...")
-                    increment_button = WebDriverWait(driver, 20).until(
+                    action_button = WebDriverWait(driver, 20).until(
                         EC.element_to_be_clickable(INCREMENT_BUTTON_LOCATOR)
                     )
-                    increment_button.click()
-                    time.sleep(2.5) # Pause for UI to update after increment click
+                    action_button.click()
+                    print("Clicked increment.")
                 elif current_week_value_read > TARGET_START_WEEK:
-                    # This case means we overshot or started higher.
-                    # For now, we'll just log it and break, assuming the main download loop will handle decrementing.
-                    # Or, you could implement decrementing here if necessary.
-                    print(f"Warning: Current week {current_week_value_read} > {TARGET_START_WEEK}. Proceeding to download loop.")
-                    break
+                    print(f"Current week {current_week_value_read} > {TARGET_START_WEEK}. Clicking decrement button...")
+                    action_button = WebDriverWait(driver, 20).until(
+                        EC.element_to_be_clickable(DECREMENT_BUTTON_LOCATOR)
+                    )
+                    action_button.click()
+                    print("Clicked decrement.")
 
-                increment_attempts += 1
+                time.sleep(3) # Pause for UI to update after slider button click (increased)
+                slider_adjust_attempts += 1
 
-            except TimeoutException as e_inc_timeout:
-                print(f"Timeout during week increment process: {e_inc_timeout}")
-                driver.save_screenshot(f"err_timeout_increment_wk{increment_attempts}.png")
-                raise # Re-raise to stop if increment button cannot be found/clicked
-            except Exception as e_inc:
-                print(f"Error during week increment process (attempt {increment_attempts}): {e_inc}")
-                driver.save_screenshot(f"err_increment_wk{increment_attempts}.png")
-                # Decide if to retry or raise
-                if increment_attempts >= max_increment_attempts -1 : raise
-                time.sleep(3) # Longer pause on generic error before retry
-                increment_attempts +=1
+            except TimeoutException as e_slider_timeout:
+                print(f"Timeout during week adjustment process (attempt {slider_adjust_attempts}): {e_slider_timeout}")
+                driver.save_screenshot(f"err_timeout_slider_adj_wk{slider_adjust_attempts}.png")
+                raise
+            except Exception as e_slider_err:
+                print(f"Error during week adjustment process (attempt {slider_adjust_attempts}): {e_slider_err}")
+                driver.save_screenshot(f"err_slider_adj_wk{slider_adjust_attempts}.png")
+                if slider_adjust_attempts >= max_slider_adjust_attempts -1 : raise
+                time.sleep(3)
+                slider_adjust_attempts +=1
 
+        if slider_adjust_attempts >= max_slider_adjust_attempts and current_week_value_read != TARGET_START_WEEK:
+            print(f"Error: Reached max adjustment attempts ({max_slider_adjust_attempts}) trying to set week to {TARGET_START_WEEK}. Last read week: {current_week_value_read}")
+            raise Exception(f"Failed to set week to {TARGET_START_WEEK} using slider buttons.")
 
-        if increment_attempts >= max_increment_attempts:
-            print(f"Error: Reached max increment attempts ({max_increment_attempts}) trying to set week to {TARGET_START_WEEK}.")
-            raise Exception(f"Failed to set week to {TARGET_START_WEEK} using increment button.")
-
-        print("Week setting process (using increment button) finished.")
+        print("Week adjustment process (using slider buttons) finished.")
         print("-" * 30)
-        # --- END NEW SET EPI WEEK ---
-
+        # --- END ADJUST EPI WEEK ---
 
         # --- Download Loop (starts from TARGET_START_WEEK, e.g., 53) ---
         weeknum_for_loop = TARGET_START_WEEK # Should be 53 now
@@ -394,8 +391,8 @@ def iterate_weekly():
             target_decrement_week = weeknum_for_loop - 1
             print(f"Attempting to decrement to Week Number: {target_decrement_week}")
             try:
-                # Using the more specific DECREMENT_BUTTON_LOCATOR if defined, or the general one
-                decrement_button_actual_locator = (By.XPATH, "//*[contains(@class, 'tableauArrowDec') or contains(@class, 'dijitSliderDecrementIconH')]")
+                # Using the specific DECREMENT_BUTTON_LOCATOR
+                decrement_button_actual_locator = DECREMENT_BUTTON_LOCATOR
                 decrement_button = wait.until(EC.element_to_be_clickable(decrement_button_actual_locator))
                 decrement_button.click()
                 print(f"Clicked decrement button. Aiming for week {target_decrement_week}.")
