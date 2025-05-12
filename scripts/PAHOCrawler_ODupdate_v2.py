@@ -301,176 +301,113 @@ def iterate_weekly():
         print("Closed year dropdown.")
         time.sleep(5)
 
-        # --- SET EPI WEEK TO 53 ---
+        # --- NEW: SET EPI WEEK TO 53 USING INCREMENT BUTTON ---
         print("-" * 30)
-        print("Ensuring Epidemiological Week is set to 53...")
-        TARGET_WEEK_TO_SET = 53
-        WEEK_INTERACTION_TIMEOUT = 40
-
+        print("Setting Epidemiological Week to 53 using increment button...")
+        TARGET_START_WEEK = 53
         SLIDER_TEXT_LOCATOR_WEEK = (By.CSS_SELECTOR, ".sliderText")
-        WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR = (By.ID, "dijit_form_Button_3")
-        SEARCH_INPUT_TEXT_FIELD_LOCATOR = (By.ID, "dijit_form_ComboBox_0")
-        # Locator for a general 'empty space' click, targeting the body of the current iframe
-        EMPTY_SPACE_CLICK_LOCATOR = (By.TAG_NAME, "body")
+        # Locator for the increment button of the week slider
+        INCREMENT_BUTTON_LOCATOR = (By.XPATH, "//*[contains(@class, 'tableauArrowInc') or contains(@class, 'dijitSliderIncrementIconH')]")
+        # Locator for the decrement button (if needed to go down to 53, though less likely for this setup)
+        # DECREMENT_BUTTON_LOCATOR = (By.XPATH, "//*[contains(@class, 'tableauArrowDec') or contains(@class, 'dijitSliderDecrementIconH')]")
 
+        max_increment_attempts = 70 # Safety break for incrementing (e.g., 52 clicks + buffer)
+        increment_attempts = 0
 
-        current_week_value_read = -1
-        try:
-            print(f"Attempting to read current week from: {SLIDER_TEXT_LOCATOR_WEEK}")
-            slider_text_elements = wait.until(EC.presence_of_all_elements_located(SLIDER_TEXT_LOCATOR_WEEK))
-            visible_slider_text_element = next((elem for elem in slider_text_elements if elem.is_displayed()), None)
-            if visible_slider_text_element:
-                current_text = visible_slider_text_element.text.strip()
-                cleaned_text = "".join(filter(str.isdigit, current_text))
-                if cleaned_text:
-                    current_week_value_read = int(cleaned_text)
-                    print(f"Current week detected as: {current_week_value_read}")
-            else: print(f"No visible {SLIDER_TEXT_LOCATOR_WEEK} found.")
-        except TimeoutException: print(f"Timeout waiting for {SLIDER_TEXT_LOCATOR_WEEK} to read initial value.")
-        except Exception as e_read: print(f"Error reading initial week value: {e_read}")
-
-        if current_week_value_read != TARGET_WEEK_TO_SET:
-            print(f"Current week {current_week_value_read if current_week_value_read != -1 else 'unknown'} is not {TARGET_WEEK_TO_SET}. Updating...")
-
-            # --- Step 1: Click Search Activator ---
-            search_activator_clicked_successfully = False
+        while increment_attempts < max_increment_attempts:
             try:
-                print(f"Locating week search activator: {WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR}")
-                search_activator = WebDriverWait(driver, WEEK_INTERACTION_TIMEOUT).until(
-                    EC.presence_of_element_located(WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR)
+                # Ensure slider text element is present and visible before reading
+                slider_text_elements = WebDriverWait(driver, 15).until(
+                    EC.presence_of_all_elements_located(SLIDER_TEXT_LOCATOR_WEEK)
                 )
-                print("Search activator present. Scrolling into view...")
-                driver.execute_script("arguments[0].scrollIntoView(true);", search_activator)
-                time.sleep(0.5)
+                visible_slider_text_element = next((elem for elem in slider_text_elements if elem.is_displayed()), None)
 
-                print("Waiting for search activator to be clickable...")
-                search_activator = WebDriverWait(driver, WEEK_INTERACTION_TIMEOUT).until(
-                    EC.element_to_be_clickable(WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR)
-                )
-                print("Search activator clickable. Attempting standard click...")
-                search_activator.click()
-                search_activator_clicked_successfully = True
-                print("Clicked week search activator using standard click.")
+                if not visible_slider_text_element:
+                    print("Error: Slider text element for week not visible. Cannot proceed with incrementing.")
+                    driver.save_screenshot("err_slider_text_not_visible_before_increment.png")
+                    raise Exception("Slider text for week not visible.")
 
-            except TimeoutException as e_activator_timeout:
-                print(f"Timeout waiting for search activator ({WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR}) to be clickable: {e_activator_timeout}")
-                driver.save_screenshot(f"err_timeout_activator_wk{TARGET_WEEK_TO_SET}.png")
-                try:
-                    print("Standard click failed/timed out for activator. Attempting JavaScript click...")
-                    search_activator_js = driver.find_element(*WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR)
-                    driver.execute_script("arguments[0].click();", search_activator_js)
-                    search_activator_clicked_successfully = True
-                    print("Clicked week search activator using JavaScript click.")
-                except Exception as e_js_click_activator:
-                    print(f"JavaScript click on activator also failed: {e_js_click_activator}")
-                    driver.save_screenshot(f"err_js_click_activator_wk{TARGET_WEEK_TO_SET}.png")
-                    raise
-            except Exception as e_activator_other:
-                print(f"Other error clicking week search activator ({WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR}): {e_activator_other}")
-                driver.save_screenshot(f"err_other_search_activator_wk{TARGET_WEEK_TO_SET}.png")
-                raise
+                current_week_text = visible_slider_text_element.text.strip()
+                cleaned_text = "".join(filter(str.isdigit, current_week_text))
 
-            if not search_activator_clicked_successfully:
-                print("Critical error: Search activator button was not successfully clicked.")
-                raise Exception("Failed to click search activator button.")
+                if not cleaned_text:
+                    print(f"Warning: Could not parse digits from slider text '{current_week_text}'. Retrying or check page state.")
+                    time.sleep(2) # Wait and retry reading
+                    increment_attempts += 1 # Count as an attempt
+                    continue
 
-            print("Pause after clicking search activator to allow UI to update...")
-            time.sleep(3.5)
-            print(f"Taking screenshot: post_activator_click_wk{TARGET_WEEK_TO_SET}.png")
-            driver.save_screenshot(f"post_activator_click_wk{TARGET_WEEK_TO_SET}.png")
+                current_week_value_read = int(cleaned_text)
+                print(f"Current week on slider: {current_week_value_read}")
 
+                if current_week_value_read == TARGET_START_WEEK:
+                    print(f"Successfully reached target week {TARGET_START_WEEK}.")
+                    break
+                elif current_week_value_read < TARGET_START_WEEK:
+                    print(f"Current week {current_week_value_read} < {TARGET_START_WEEK}. Clicking increment button...")
+                    increment_button = WebDriverWait(driver, 20).until(
+                        EC.element_to_be_clickable(INCREMENT_BUTTON_LOCATOR)
+                    )
+                    increment_button.click()
+                    time.sleep(2.5) # Pause for UI to update after increment click
+                elif current_week_value_read > TARGET_START_WEEK:
+                    # This case means we overshot or started higher.
+                    # For now, we'll just log it and break, assuming the main download loop will handle decrementing.
+                    # Or, you could implement decrementing here if necessary.
+                    print(f"Warning: Current week {current_week_value_read} > {TARGET_START_WEEK}. Proceeding to download loop.")
+                    break
 
-            # --- Step 2: Interact with Search Input ---
-            try:
-                print(f"Attempting to interact with week search input: {SEARCH_INPUT_TEXT_FIELD_LOCATOR}")
+                increment_attempts += 1
 
-                print("Waiting for search input to be present in DOM...")
-                search_input_present = WebDriverWait(driver, WEEK_INTERACTION_TIMEOUT).until(
-                    EC.presence_of_element_located(SEARCH_INPUT_TEXT_FIELD_LOCATOR)
-                )
-                print("Search input present. Scrolling into view (if needed)...")
-                driver.execute_script("arguments[0].scrollIntoView(false);", search_input_present);
-                time.sleep(0.5)
-
-                print("Waiting for search input to be visible...")
-                search_input_visible = WebDriverWait(driver, WEEK_INTERACTION_TIMEOUT).until(
-                    EC.visibility_of_element_located(SEARCH_INPUT_TEXT_FIELD_LOCATOR)
-                )
-                print("Search input visible.")
-                print(f"Taking screenshot: pre_input_interaction_wk{TARGET_WEEK_TO_SET}.png")
-                driver.save_screenshot(f"pre_input_interaction_wk{TARGET_WEEK_TO_SET}.png")
+            except TimeoutException as e_inc_timeout:
+                print(f"Timeout during week increment process: {e_inc_timeout}")
+                driver.save_screenshot(f"err_timeout_increment_wk{increment_attempts}.png")
+                raise # Re-raise to stop if increment button cannot be found/clicked
+            except Exception as e_inc:
+                print(f"Error during week increment process (attempt {increment_attempts}): {e_inc}")
+                driver.save_screenshot(f"err_increment_wk{increment_attempts}.png")
+                # Decide if to retry or raise
+                if increment_attempts >= max_increment_attempts -1 : raise
+                time.sleep(3) # Longer pause on generic error before retry
+                increment_attempts +=1
 
 
-                print("Waiting for search input to be clickable...")
-                search_input = WebDriverWait(driver, WEEK_INTERACTION_TIMEOUT).until(
-                    EC.element_to_be_clickable(SEARCH_INPUT_TEXT_FIELD_LOCATOR)
-                )
-                print("Search input field is clickable. Attempting standard interaction...")
-                search_input.click()
-                search_input.clear()
-                search_input.send_keys(str(TARGET_WEEK_TO_SET))
-                print(f"Typed '{TARGET_WEEK_TO_SET}'.")
+        if increment_attempts >= max_increment_attempts:
+            print(f"Error: Reached max increment attempts ({max_increment_attempts}) trying to set week to {TARGET_START_WEEK}.")
+            raise Exception(f"Failed to set week to {TARGET_START_WEEK} using increment button.")
 
-                # ** NEW: Click an empty space (body) to apply filter and close dropdown **
-                print(f"Pausing briefly after typing '{TARGET_WEEK_TO_SET}'...")
-                time.sleep(1.5) # Allow any immediate UI reaction to typing
-
-                print(f"Attempting to click empty space ({EMPTY_SPACE_CLICK_LOCATOR}) to apply filter...")
-                empty_space_element = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable(EMPTY_SPACE_CLICK_LOCATOR) # Ensure body is clickable
-                )
-                empty_space_element.click()
-                print(f"Clicked empty space to apply week '{TARGET_WEEK_TO_SET}'.")
-                time.sleep(5) # Allow filter to apply fully after clicking empty space
-
-            except TimeoutException as e_input_timeout:
-                print(f"Timeout during search input/empty space click interaction: {e_input_timeout}")
-                driver.save_screenshot(f"err_timeout_search_input_or_empty_space_wk{TARGET_WEEK_TO_SET}.png")
-                raise
-            except ElementNotInteractableException as e_input_interact:
-                print(f"ElementNotInteractableException with week search input/empty space: {e_input_interact}")
-                driver.save_screenshot(f"err_interactable_search_input_or_empty_space_wk{TARGET_WEEK_TO_SET}.png")
-                raise
-            except Exception as e_input_other:
-                print(f"Other error with week search input/empty space: {e_input_other}")
-                driver.save_screenshot(f"err_other_search_input_or_empty_space_wk{TARGET_WEEK_TO_SET}.png")
-                raise
-
-            # --- Step 3: Optional Verification ---
-            try:
-                print(f"Verifying week update by checking {SLIDER_TEXT_LOCATOR_WEEK} for '{TARGET_WEEK_TO_SET}'...")
-                WebDriverWait(driver, WEEK_INTERACTION_TIMEOUT).until(
-                    EC.text_to_be_present_in_element_located(SLIDER_TEXT_LOCATOR_WEEK, str(TARGET_WEEK_TO_SET)))
-                print(f"Verification successful: Week appears to be set to {TARGET_WEEK_TO_SET}.")
-            except TimeoutException:
-                print(f"Verification WARNING: Slider text did not update to {TARGET_WEEK_TO_SET} within timeout.")
-        else:
-            print(f"Week is already correctly set to {TARGET_WEEK_TO_SET}.")
-        print("Week setting process finished.")
+        print("Week setting process (using increment button) finished.")
         print("-" * 30)
-        # --- END SET EPI WEEK ---
+        # --- END NEW SET EPI WEEK ---
 
-        weeknum_for_loop = TARGET_WEEK_TO_SET
+
+        # --- Download Loop (starts from TARGET_START_WEEK, e.g., 53) ---
+        weeknum_for_loop = TARGET_START_WEEK # Should be 53 now
         print(f"--- Starting Download Loop for Year Filter '{year_filter_value}' from Week {weeknum_for_loop} ---")
 
+        # Initial download for the starting week (e.g., 53)
+        print(f"Initial download for Week Number: {weeknum_for_loop}")
         download_and_rename(wait, shadow_doc2_context, weeknum_for_loop, temp_download_dir_for_chrome, final_file_destination_path, driver, year_filter_value, today_timestamp)
 
+        # Decrement and download for subsequent weeks
         while weeknum_for_loop > 1:
             print("-" * 20)
             target_decrement_week = weeknum_for_loop - 1
             print(f"Attempting to decrement to Week Number: {target_decrement_week}")
             try:
-                decrement_locator = (By.XPATH, "//*[contains(@class, 'tableauArrowDec') or contains(@class, 'dijitSliderDecrementIconH')]")
-                decrement_button = wait.until(EC.element_to_be_clickable(decrement_locator))
+                # Using the more specific DECREMENT_BUTTON_LOCATOR if defined, or the general one
+                decrement_button_actual_locator = (By.XPATH, "//*[contains(@class, 'tableauArrowDec') or contains(@class, 'dijitSliderDecrementIconH')]")
+                decrement_button = wait.until(EC.element_to_be_clickable(decrement_button_actual_locator))
                 decrement_button.click()
                 print(f"Clicked decrement button. Aiming for week {target_decrement_week}.")
-                time.sleep(6)
+                time.sleep(6) # Increased wait after decrement for UI to settle
             except Exception as e_dec:
                 print(f"Error clicking decrement button for week {target_decrement_week}: {e_dec}")
                 driver.save_screenshot(f"err_decrement_week_{target_decrement_week}.png")
-                break
-            weeknum_for_loop = target_decrement_week
+                break # Stop loop if decrement fails
+
+            weeknum_for_loop = target_decrement_week # Update current week after successful decrement
             download_and_rename(wait, shadow_doc2_context, weeknum_for_loop, temp_download_dir_for_chrome, final_file_destination_path, driver, year_filter_value, today_timestamp)
+
         print(f"--- Finished Download Loop for Year Filter '{year_filter_value}' ---")
 
     except Exception as e:
