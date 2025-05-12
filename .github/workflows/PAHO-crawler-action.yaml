@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: '3.12.3'
       - name: Install Google Chrome Stable
-            run: |
+        run: |
               echo "Starting Chrome installation..."
               sudo apt-get update -y
               # Attempt to install dependencies that Chrome might need
@@ -87,13 +87,13 @@ jobs:
          git push
 
       - name: Upload Scraped Data Artifacts
-            if: always() # Run this step even if the script fails, to get partial data or logs
-            uses: actions/upload-artifact@v4
-            with:
-              name: paho-scraped-data-${{ github.run_id }}
-              path: | # Use multi-line path to include multiple locations
-                ./data_output/ # Path to the folder where your script saves final CSV files
-                ./*.png # Upload any PNG files (screenshots for errors) from the workspace root
-                ./temp_chrome_downloads/ # Optional: upload temporary downloads if needed for debugging
-              retention-days: 7 # Optional: how long to keep artifacts
+        if: always() # Run this step even if the script fails, to get partial data or logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: paho-scraped-data-${{ github.run_id }}
+          path: | # Use multi-line path to include multiple locations
+            ./data_output/ # Path to the folder where your script saves final CSV files
+            ./*.png # Upload any PNG files (screenshots for errors) from the workspace root
+            ./temp_chrome_downloads/ # Optional: upload temporary downloads if needed for debugging
+          retention-days: 7 # Optional: how long to keep artifacts
 
