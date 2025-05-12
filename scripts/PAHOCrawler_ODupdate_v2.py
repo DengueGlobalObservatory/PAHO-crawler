@@ -305,7 +305,8 @@ def iterate_weekly():
         print("-" * 30)
         print("Ensuring Epidemiological Week is set to 53...")
         TARGET_WEEK_TO_SET = 53
-        WEEK_INTERACTION_TIMEOUT = 30
+        # Increased timeout specifically for these sensitive interactions
+        WEEK_INTERACTION_TIMEOUT = 40 # Increased from 30
 
         SLIDER_TEXT_LOCATOR_WEEK = (By.CSS_SELECTOR, ".sliderText")
         WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR = (By.ID, "dijit_form_Button_3")
@@ -323,34 +324,67 @@ def iterate_weekly():
                     current_week_value_read = int(cleaned_text)
                     print(f"Current week detected as: {current_week_value_read}")
             else: print(f"No visible {SLIDER_TEXT_LOCATOR_WEEK} found.")
-        except TimeoutException: print(f"Timeout waiting for {SLIDER_TEXT_LOCATOR_WEEK} to read initial value.") # Keep this specific
+        except TimeoutException: print(f"Timeout waiting for {SLIDER_TEXT_LOCATOR_WEEK} to read initial value.")
         except Exception as e_read: print(f"Error reading initial week value: {e_read}")
 
         if current_week_value_read != TARGET_WEEK_TO_SET:
             print(f"Current week {current_week_value_read if current_week_value_read != -1 else 'unknown'} is not {TARGET_WEEK_TO_SET}. Updating...")
 
             # --- Step 1: Click Search Activator ---
+            search_activator_clicked_successfully = False
             try:
-                print(f"Locating and clicking week search activator: {WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR}")
-                search_activator = wait.until(EC.element_to_be_clickable(WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR))
+                print(f"Locating week search activator: {WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR}")
+                # First, wait for presence, then visibility, then try to click
+                search_activator = WebDriverWait(driver, WEEK_INTERACTION_TIMEOUT).until(
+                    EC.presence_of_element_located(WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR)
+                )
+                print("Search activator present. Scrolling into view...")
+                driver.execute_script("arguments[0].scrollIntoView(true);", search_activator)
+                time.sleep(0.5) # Pause after scroll
+
+                print("Waiting for search activator to be clickable...")
+                search_activator = WebDriverWait(driver, WEEK_INTERACTION_TIMEOUT).until(
+                    EC.element_to_be_clickable(WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR)
+                )
+                print("Search activator clickable. Attempting standard click...")
                 search_activator.click()
-                print("Clicked week search activator.")
-                time.sleep(2.5) # Increased pause for search input to appear/activate
-            except TimeoutException as e_activator:
-                print(f"Timeout clicking week search activator ({WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR}): {e_activator}")
-                driver.save_screenshot(f"err_click_search_activator_wk{TARGET_WEEK_TO_SET}.png")
-                raise # Re-raise to be caught by the outer "critical error" block
+                search_activator_clicked_successfully = True
+                print("Clicked week search activator using standard click.")
+
+            except TimeoutException as e_activator_timeout:
+                print(f"Timeout waiting for search activator ({WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR}) to be clickable: {e_activator_timeout}")
+                driver.save_screenshot(f"err_timeout_activator_wk{TARGET_WEEK_TO_SET}.png")
+                # Fallback to JavaScript click if standard click times out on clickability
+                try:
+                    print("Standard click failed/timed out for activator. Attempting JavaScript click...")
+                    search_activator_js = driver.find_element(*WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR) # Re-find for JS
+                    driver.execute_script("arguments[0].click();", search_activator_js)
+                    search_activator_clicked_successfully = True
+                    print("Clicked week search activator using JavaScript click.")
+                except Exception as e_js_click_activator:
+                    print(f"JavaScript click on activator also failed: {e_js_click_activator}")
+                    driver.save_screenshot(f"err_js_click_activator_wk{TARGET_WEEK_TO_SET}.png")
+                    raise # Re-raise the original or JS error to stop
             except Exception as e_activator_other:
                 print(f"Other error clicking week search activator ({WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR}): {e_activator_other}")
                 driver.save_screenshot(f"err_other_search_activator_wk{TARGET_WEEK_TO_SET}.png")
-                raise
+                raise # Re-raise
+
+            if not search_activator_clicked_successfully:
+                # This block should not be reached if exceptions above are raised, but as a safeguard:
+                print("Critical error: Search activator button was not successfully clicked.")
+                raise Exception("Failed to click search activator button.")
+
+            time.sleep(3) # Increased pause for search input to appear/activate after click
 
             # --- Step 2: Interact with Search Input ---
             try:
                 print(f"Interacting with week search input: {SEARCH_INPUT_TEXT_FIELD_LOCATOR}")
-                search_input = wait.until(EC.element_to_be_clickable(SEARCH_INPUT_TEXT_FIELD_LOCATOR))
+                search_input = WebDriverWait(driver, WEEK_INTERACTION_TIMEOUT).until(
+                    EC.element_to_be_clickable(SEARCH_INPUT_TEXT_FIELD_LOCATOR)
+                )
                 print("Search input field is clickable.")
-                search_input.click()
+                search_input.click() # Standard click first
                 search_input.clear()
                 search_input.send_keys(str(TARGET_WEEK_TO_SET))
                 print(f"Typed '{TARGET_WEEK_TO_SET}'.")
@@ -364,8 +398,30 @@ def iterate_weekly():
                 raise
             except ElementNotInteractableException as e_input_interact:
                 print(f"ElementNotInteractableException with week search input ({SEARCH_INPUT_TEXT_FIELD_LOCATOR}): {e_input_interact}")
-                driver.save_screenshot(f"err_interactable_search_input_wk{TARGET_WEEK_TO_SET}.png")
-                raise
+                # Try JS to set value and then simulate Enter if standard send_keys fails
+                try:
+                    print("Standard send_keys failed for input. Attempting JavaScript value set + Enter event...")
+                    search_input_js = driver.find_element(*SEARCH_INPUT_TEXT_FIELD_LOCATOR) # Re-find
+                    driver.execute_script(f"arguments[0].value = '{TARGET_WEEK_TO_SET}';", search_input_js)
+                    # Create and dispatch a KeyboardEvent for Enter
+                    driver.execute_script("""
+                        var inputElement = arguments[0];
+                        var event = new KeyboardEvent('keydown', {
+                            key: 'Enter',
+                            code: 'Enter',
+                            keyCode: 13,
+                            which: 13,
+                            bubbles: true,
+                            cancelable: true
+                        });
+                        inputElement.dispatchEvent(event);
+                    """, search_input_js)
+                    print(f"Set value to '{TARGET_WEEK_TO_SET}' and dispatched Enter event using JavaScript.")
+                    time.sleep(5) # Allow filter to apply
+                except Exception as e_js_input:
+                    print(f"JavaScript interaction with search input also failed: {e_js_input}")
+                    driver.save_screenshot(f"err_js_interact_search_input_wk{TARGET_WEEK_TO_SET}.png")
+                    raise # Re-raise the JS error or original ElementNotInteractableException
             except Exception as e_input_other:
                 print(f"Other error with week search input ({SEARCH_INPUT_TEXT_FIELD_LOCATOR}): {e_input_other}")
                 driver.save_screenshot(f"err_other_search_input_wk{TARGET_WEEK_TO_SET}.png")
@@ -379,7 +435,6 @@ def iterate_weekly():
                 print(f"Verification successful: Week appears to be set to {TARGET_WEEK_TO_SET}.")
             except TimeoutException:
                 print(f"Verification WARNING: Slider text did not update to {TARGET_WEEK_TO_SET} within timeout.")
-                # driver.save_screenshot(f"warn_verify_timeout_wk{TARGET_WEEK_TO_SET}.png") # Optional screenshot for warning
         else:
             print(f"Week is already correctly set to {TARGET_WEEK_TO_SET}.")
         print("Week setting process finished.")
@@ -413,9 +468,13 @@ def iterate_weekly():
         print(f"An critical error occurred in iterate_weekly: {type(e).__name__} - {e}")
         if driver:
             timestamp = time.strftime("%Y%m%d-%H%M%S")
+            # Save screenshot in the current working directory (which is workspace root in GHA)
             screenshot_path = os.path.join(os.getcwd(), f"critical_error_main_process_{timestamp}.png")
-            try: driver.save_screenshot(screenshot_path); print(f"Screenshot saved: {screenshot_path}")
-            except Exception as scr_e: print(f"Could not save screenshot: {scr_e}")
+            try:
+                driver.save_screenshot(screenshot_path)
+                print(f"Screenshot saved: {screenshot_path}")
+            except Exception as scr_e:
+                print(f"Could not save screenshot: {scr_e}")
     finally:
         if driver:
             print("Closing WebDriver...")
