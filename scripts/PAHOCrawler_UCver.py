@@ -1,256 +1,484 @@
 import undetected_chromedriver as uc
-#from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-#from selenium.webdriver.chrome.options import Options
-#from selenium.webdriver.chrome.service import Service
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementNotInteractableException
 import time
 import os
 from datetime import datetime
 import subprocess
 import re
 import sys
+import shutil # For robust file moving
 
 # Function to get the installed Chrome version
 def get_chrome_version():
+    """
+    Attempts to get the installed Chrome major version.
+    More robust for different OS and common installation paths.
+    Returns None if version cannot be determined, allowing uc.Chrome to auto-detect.
+    """
     try:
+        version_match = None
         if sys.platform == "win32":
-            # Command to retrieve Chrome version from Windows registry
-            output = subprocess.check_output(
-                r'reg query "HKEY_CURRENT_USER\Software\Google\Chrome\BLBeacon" /v version',
-                shell=True, 
-                text=True
-            )
-            version = re.search(r'\s+version\s+REG_SZ\s+(\d+)\.', output)
-        else:  # Assuming Linux or other Unix-like systems
-            # Try different commands to retrieve Chrome version on Linux
-            for command in ['google-chrome --version', 'google-chrome-stable --version', 'chromium-browser --version']:
+            reg_paths = [
+                r'reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Google\Chrome\Update" /v LastKnownVersionString /reg:32',
+                r'reg query "HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Google\Chrome\Update" /v LastKnownVersionString /reg:64',
+                r'reg query "HKEY_CURRENT_USER\Software\Google\Chrome\BLBeacon" /v version' # User's original
+            ]
+            for path in reg_paths:
                 try:
-                    output = subprocess.check_output(command, shell=True, text=True)
-                    version = re.search(r'\b(\d+)\.', output)
-                    if version:
-                        break
-                except subprocess.CalledProcessError:
-                    continue
-            else:
-                raise RuntimeError("Could not determine Chrome version")
+                    output = subprocess.check_output(path, shell=True, text=True, stderr=subprocess.DEVNULL)
+                    version_match = re.search(r'REG_SZ\s+(\d+)\.', output)
+                    if version_match: break
+                except (subprocess.CalledProcessError, FileNotFoundError): continue
+        elif sys.platform == "darwin": # macOS
+             commands = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --version']
+             for command in commands:
+                try:
+                    output = subprocess.check_output(command, shell=True, text=True, stderr=subprocess.DEVNULL)
+                    version_match = re.search(r'Google Chrome (\d+)\.', output) # Regex for macOS output
+                    if version_match: break
+                except (subprocess.CalledProcessError, FileNotFoundError): continue
+        else:  # Linux
+            commands = [ # User's original list
+                'google-chrome --version',
+                'google-chrome-stable --version',
+                'chromium-browser --version',
+                'chromium --version' # Added for completeness
+            ]
+            for command in commands:
+                try:
+                    output = subprocess.check_output(command, shell=True, text=True, stderr=subprocess.DEVNULL)
+                    version_match = re.search(r'\b(\d+)\.', output) # General regex for version numbers
+                    if version_match: break
+                except (subprocess.CalledProcessError, FileNotFoundError): continue
 
-        if version:
-            return int(version.group(1))
+        if version_match:
+            version = int(version_match.group(1))
+            print(f"Detected Chrome major version: {version}")
+            return version
         else:
-            raise ValueError("Could not parse Chrome version")
+            # If specific commands fail, try a more generic approach for Linux if possible
+            if sys.platform.startswith('linux'):
+                try: # Check common path
+                    output = subprocess.check_output(['/usr/bin/google-chrome-stable', '--version'], text=True, stderr=subprocess.DEVNULL)
+                    version_match = re.search(r'\b(\d+)\.', output)
+                    if version_match:
+                        version = int(version_match.group(1))
+                        print(f"Detected Chrome major version (fallback): {version}")
+                        return version
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    pass
+            print("Could not automatically determine Chrome version using common methods. uc.Chrome will attempt auto-detection.")
+            return None
+
     except Exception as e:
-        raise RuntimeError("Failed to get Chrome version") from e
+        print(f"Warning: Failed to get Chrome version due to: {e}. uc.Chrome will attempt auto-detection.")
+        return None
 
-# Get the major version of Chrome installed
-chrome_version = get_chrome_version()
+# Get the major version of Chrome installed (can be None)
+chrome_version_detected = get_chrome_version()
 
 
+def move_to_download_folder(default_dir_path, final_download_path, new_file_name_stem, file_extension):
+    """
+    Waits for a download to complete in default_dir_path, then moves the latest file
+    to final_download_path with the new name.
+    """
+    got_file = False
+    max_wait_time = 180  # Max time to wait for download (3 minutes)
+    check_interval = 5   # How often to check for the file
+    start_time = time.time()
+    downloaded_file_path = None
 
-#from webdriver_manager.chrome import ChromeDriverManager
-#driver_executable_path = ChromeDriverManager().install()
-#https://github.com/ultrafunkamsterdam/undetected-chromedriver/issues/1904
+    print(f"Waiting for download in '{default_dir_path}' for up to {max_wait_time}s...")
 
-def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtension):
-    got_file = False   
-    while not got_file:
-        try: 
-            # Use glob to get the current file name
-            currentFile = max([default_dir + "/" + f for f in os.listdir(default_dir)], key=os.path.getctime)
+    while not got_file and (time.time() - start_time) < max_wait_time:
+        try:
+            # List files, ignore temporary download files
+            candidate_files = [
+                os.path.join(default_dir_path, f) for f in os.listdir(default_dir_path)
+                if not f.lower().endswith(('.crdownload', '.tmp', '.part')) and \
+                   os.path.isfile(os.path.join(default_dir_path, f))
+            ]
 
-           # Ensure the file exists before proceeding
-            if os.path.exists(currentFile):
+            if not candidate_files:
+                time.sleep(check_interval)
+                continue
+
+            # Get the latest (by modification time) candidate file
+            latest_file = max(candidate_files, key=os.path.getmtime)
+
+            time.sleep(1) # Brief pause before size check
+            initial_size = os.path.getsize(latest_file)
+            time.sleep(2) # Wait a moment to see if size changes
+            current_size = os.path.getsize(latest_file)
+
+            if initial_size == current_size and current_size > 0:
+                print(f"Detected downloaded file: {os.path.basename(latest_file)} (Size: {current_size} bytes)")
+                downloaded_file_path = latest_file
                 got_file = True
             else:
-                raise FileNotFoundError("File not found. Retrying...")
-            
+                print(f"File '{os.path.basename(latest_file)}' size changed (Initial: {initial_size}, Current: {current_size}) or is empty. Re-evaluating...")
+                time.sleep(check_interval - 3)
+
+        except FileNotFoundError:
+            print(f"Download directory '{default_dir_path}' not found during check. Retrying...")
+            time.sleep(check_interval)
         except Exception as e:
-            print("File has not finished downloading")
-            time.sleep(10)
+            print(f"Error checking download directory: {e}. Retrying...")
+            time.sleep(check_interval)
 
-    # Create new file name
-    fileDestination = os.path.join(downloadPath, newFileName + fileExtension)
+    if not got_file or not downloaded_file_path:
+        print(f"Error: Download did not complete or file not detected within {max_wait_time} seconds in '{default_dir_path}'.")
+        raise TimeoutError(f"Download timeout or file not found in '{default_dir_path}'.")
 
-    # Move the file
-    os.rename(currentFile, fileDestination)
-    print(f"Moved file to {fileDestination}")
-    
+    final_file_name = new_file_name_stem + file_extension
+    final_destination_path = os.path.join(final_download_path, final_file_name)
+    os.makedirs(os.path.dirname(final_destination_path), exist_ok=True)
 
- 
+    try:
+        print(f"Attempting to move '{os.path.basename(downloaded_file_path)}' to '{final_destination_path}'")
+        if os.path.exists(final_destination_path):
+            print(f"Warning: File '{final_destination_path}' already exists. Overwriting.")
+            os.remove(final_destination_path)
+        shutil.move(downloaded_file_path, final_destination_path)
+        print(f"Successfully moved file to '{final_destination_path}'")
+    except Exception as e:
+        print(f"Error moving file from '{downloaded_file_path}' to '{final_destination_path}': {e}")
+        raise
 
-def download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, driver, year, today):
-    """Download and rename the file for the given week number."""
-    
-    # Wait for the week number to update
-    weeknum_div = wait.until(
-        EC.presence_of_element_located((By.CLASS_NAME, "sliderText"))
-    )
-    weeknum = int(weeknum_div.text)  # Convert to integer for comparison
+def download_and_rename(wait, shadow_doc2_context, weeknum_for_file, default_dir_path, final_download_path, driver_instance, year_label_for_filename, today_timestamp_str):
+    """Downloads and renames the file for the given week number."""
+    print("-" * 10 + f" Starting download for Year(s) '{year_label_for_filename}', Week {weeknum_for_file} " + "-" * 10)
 
-    # print(f"Week Number: {weeknum}")
-
-    # Find and click the download button at the bottom of the dashboard
-    download_button = wait.until(
-        EC.element_to_be_clickable((By.ID, "download-ToolbarButton"))
-    )
-    download_button.click()
-    
-    time.sleep(5)
-
-    # Find and click the crosstab button (in a pop up window)
-    crosstab_button = wait.until(
-        EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-tb-test-id="DownloadCrosstab-Button"]'))
-    )
-    crosstab_button.click()
-    
-    time.sleep(5)
-
-    # Find and select the CSV option
-    #csv_div = wait.until(
-    #    EC.element_to_be_clickable((By.CSS_SELECTOR, "input[type='radio'][value='csv']"))
-    #)
-    csv_div = shadow_doc2.find_element(By.CSS_SELECTOR, "input[type='radio'][value='csv']")
-    driver.execute_script("arguments[0].scrollIntoView();", csv_div)
-    driver.execute_script("arguments[0].click();", csv_div)
-    time.sleep(5)
-
-    # Find and click the export button
-    export_button = shadow_doc2.find_element(By.CSS_SELECTOR, '[data-tb-test-id="export-crosstab-export-Button"]')
-    export_button.click()
-    print("Downloading CSV file")
-    time.sleep(5)
-
-    # Use the move_to_download_folder function to move the downloaded file
-    downloadPath = downloadPath
-    default_dir = default_dir
-    newFileName = f"PAHO_{year}_W{weeknum}_{today}"  # Base filename
-    fileExtension = '.csv'  # File extension
-
-    move_to_download_folder(default_dir, downloadPath, newFileName, fileExtension)
-
-
-def iterate_weekly(): 
-    
-    year = "2023" # choose year to download
-    today = datetime.now().strftime('%Y%m%d%H%m') # current date and time
-
-    # set directory
-    github_workspace = os.path.join(os.getenv('GITHUB_WORKSPACE'), 'data')
-    default_dir = os.getcwd()
-    #github_workspace = 'C:/Users/user/Dropbox/WORK/OpenDengue/PAHO-crawler'
-    #default_dir = 'C:/Users/user/Downloads'  
-
-    today_directory_name = f"DL_{datetime.now().strftime('%Y%m%d')}"
-    downloadPath = os.path.join(github_workspace, today_directory_name)
-    os.makedirs(downloadPath, exist_ok=True) # create a new directory 
-
-    # set chrome download directory
-    chrome_options = uc.ChromeOptions()
-    prefs = {"download.default_directory": os.getcwd()}
-    chrome_options.add_experimental_option("prefs", prefs)
-
-    # using undetected-chromedriver
-    driver = uc.Chrome(headless=True, use_subprocess=False, options = chrome_options, version_main=chrome_version)     
-    driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
-
-    #driver = webdriver.Chrome(service=Service(), options=chrome_options)  # Ensure chrome_options is defined
-    #driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
-    
-    # Define wait outside the loop
-    wait = WebDriverWait(driver, 20)
-
-    # First iframe
-    iframe_src = "https://ais.paho.org/ha_viz/dengue/nac/dengue_pais_anio_tben.asp"
-    iframe_locator = (By.XPATH, "//div[contains(@class, 'vizTab')]//iframe[@src='" + iframe_src + "']")
-    iframe = wait.until(EC.presence_of_element_located(iframe_locator))
-    driver.switch_to.frame(iframe)
-
-    # Grab the shadow element
-    shadow = driver.execute_script('return document')
-
-    # Get the iframe inside shadow element of first iframe
-    iframe2 = shadow.find_element(By.XPATH, "//body/iframe")
-    driver.switch_to.frame(iframe2)
-    shadow_doc2 = driver.execute_script('return document')
-
-    iframe_page_title = driver.title
-    print(iframe_page_title)    
-
-    if iframe_page_title != "PAHO/WHO Data - National Dengue fever cases": 
-        print("Wrong access")
-        driver.quit()
-
-    time.sleep(3)
-
-    # find the year tab
-    year_tab = wait.until(EC.visibility_of_element_located((By.ID, 'tabZoneId13')))
-
-    # find the dropdown button within the year tab
-    dd_locator = (By.CSS_SELECTOR, 'span.tabComboBoxButton')
-    dd_open = year_tab.find_element(*dd_locator)
-    dd_open.click()   
-    
-        # select year 2024
-    y2024_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2024"]/preceding-sibling::input'
-    shadow_doc2.find_element(By.XPATH, y2024_xpath).click()
-
-    y2023_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2023"]/preceding-sibling::input'
-    shadow_doc2.find_element(By.XPATH, y2023_xpath).click()
-    
-    # select the year of interest --> 2023 is already selected now
-    #year_xpath = f'//div[contains(@class, "facetOverflow")]//a[text()="{year}"]/preceding-sibling::input'
-    #shadow_doc2.find_element(By.XPATH, year_xpath).click()
-
-    # close the dropdown menu
-    dd_close = wait.until(
-        EC.element_to_be_clickable((By.CLASS_NAME, "tab-glass"))
-    )
-    dd_close.click()
-
-    time.sleep(3)
-
-    # Select all countries
-    #region_tab = wait.until(EC.visibility_of_element_located((By.ID, 'tabZoneId9')))
-    # find the dropdown button within the year tab
-    #dd_locator = (By.CSS_SELECTOR, 'span.tabComboBoxButton')
-    #dd_open = region_tab.find_element(*dd_locator)
-    #dd_open.click() 
-
-    #rAll_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="(All)"]/preceding-sibling::input'
-    #shadow_doc2.find_element(By.XPATH, rAll_xpath).click()
-
-    # close the dropdown menu
-    #dd_close = wait.until(
-    #    EC.element_to_be_clickable((By.CLASS_NAME, "tab-glass"))
-    #)
-    #dd_close.click()
-
-    #time.sleep(3)
-        
-    # Initial call to download_and_rename (for week 53 only)
-    print(f"Processing Week Number: 53")
-    download_and_rename(wait, shadow_doc2, 53, default_dir, downloadPath, driver, year, today)
-
-    weeknum = 53  # Initialize weeknum outside the loop
-    # loop for downloading and renaming files
-    while weeknum > 0:
-        print(f"Processing Week Number: {weeknum-1}")
-        decrement_button = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@class, 'tableauArrowDec')]")))
-        decrement_button.click()
+    try:
+        print("Locating and clicking main download button (download-ToolbarButton)...")
+        download_button = wait.until(EC.element_to_be_clickable((By.ID, "download-ToolbarButton")))
+        driver_instance.execute_script("arguments[0].scrollIntoView(true);", download_button)
+        time.sleep(0.5)
+        download_button.click()
+        print("Clicked main download button.")
         time.sleep(3)
 
-        # Update weeknum after decrementing
-        weeknum -= 1
+        print("Locating and clicking 'Crosstab' button in dialog...")
+        crosstab_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-tb-test-id="DownloadCrosstab-Button"]')))
+        crosstab_button.click()
+        print("Clicked 'Crosstab' button.")
+        time.sleep(3)
 
-        # Pass updated weeknum to download_and_rename
-        download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, driver, year, today)
+        print("Locating and selecting 'CSV' option...")
+        csv_radio_selector = "input[type='radio'][value='csv']"
+        time.sleep(1)
+        csv_div = shadow_doc2_context.find_element(By.CSS_SELECTOR, csv_radio_selector)
+        driver_instance.execute_script("arguments[0].scrollIntoView(true); arguments[0].click();", csv_div)
+        print("Selected 'CSV' option.")
+        time.sleep(2)
 
-        if weeknum == 1:
-            print("Reached week 1, breaking the loop.")
-            break
+        print("Locating and clicking final 'Download' (Export) button...")
+        export_button_selector = '[data-tb-test-id="export-crosstab-export-Button"]'
+        export_button = shadow_doc2_context.find_element(By.CSS_SELECTOR, export_button_selector)
+        driver_instance.execute_script("arguments[0].scrollIntoView(true); arguments[0].click();", export_button)
+        print(f"Clicked Export/Download for Week {weeknum_for_file}. Waiting for file...")
 
-    driver.quit()
+        # Construct filename
+        new_file_name_stem = f"PAHO_Y{year_label_for_filename}_W{weeknum_for_file:02d}_{today_timestamp_str}"
+        file_extension = '.csv'
 
-iterate_weekly()
+        move_to_download_folder(default_dir_path, final_download_path, new_file_name_stem, file_extension)
+        print(f"Successfully downloaded and processed file for Week {weeknum_for_file}.")
 
+    except TimeoutException as te:
+        print(f"Timeout during download process for week {weeknum_for_file}: {te}")
+        driver_instance.save_screenshot(f"err_download_timeout_wk{weeknum_for_file}.png")
+        raise
+    except Exception as e:
+        print(f"Error during download process for week {weeknum_for_file}: {type(e).__name__} - {e}")
+        driver_instance.save_screenshot(f"err_download_generic_wk{weeknum_for_file}.png")
+        raise
+
+def iterate_weekly():
+
+    # Define target years for selection
+    target_years_to_select = ["2023", "2024", "2025"] # User wants these selected
+    # Create a label for filenames based on selected years
+    year_label_for_filename = "-".join(target_years_to_select)
+
+    today_timestamp = datetime.now().strftime('%Y%m%d%H%M')
+
+    is_github_actions = os.getenv('GITHUB_ACTIONS') == 'true'
+    print(f"Running in GitHub Actions: {is_github_actions}")
+
+    # --- Directory Setup (User's original structure with robustness) ---
+    github_workspace_env = os.getenv('GITHUB_WORKSPACE', os.getcwd())
+    # User's original path for final data storage
+    final_data_storage_base = os.path.join(github_workspace_env, 'data')
+
+    # Temporary directory for Chrome downloads (must be absolute)
+    default_download_dir_for_chrome = os.path.abspath(os.getcwd())
+    print(f"Chrome configured to download files to: {default_download_dir_for_chrome}")
+
+    # Final destination for processed files (dated subfolder in user's specified path)
+    today_dated_folder_name = f"DL_{datetime.now().strftime('%Y%m%d')}" # User's original folder naming
+    final_file_destination_path = os.path.join(final_data_storage_base, today_dated_folder_name)
+    os.makedirs(final_file_destination_path, exist_ok=True)
+    print(f"Processed files will be moved to: {final_file_destination_path}")
+
+    driver = None
+    try:
+        print("Setting up undetected-chromedriver...")
+        chrome_options = uc.ChromeOptions()
+        prefs = {
+            "download.default_directory": default_download_dir_for_chrome, # Must be absolute
+            "download.prompt_for_download": False,
+            "safebrowsing.enabled": True,
+            "profile.default_content_settings.popups": 0
+        }
+        chrome_options.add_experimental_option("prefs", prefs)
+
+        if is_github_actions:
+            print("Applying GitHub Actions specific Chrome options (headless, no-sandbox, etc.).")
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument('--disable-gpu')
+            chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_argument("--disable-extensions")
+            chrome_options.add_argument("--proxy-server='direct://'")
+            chrome_options.add_argument("--proxy-bypass-list=*")
+            chrome_options.add_argument("--start-maximized")
+
+        driver_version_main = chrome_version_detected
+        driver = uc.Chrome(
+            options=chrome_options,
+            version_main=driver_version_main,
+            headless=is_github_actions,
+            use_subprocess=False # User's original setting
+        )
+        if not is_github_actions:
+            driver.maximize_window()
+
+        print("Navigating to PAHO data page...")
+        driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
+
+        wait = WebDriverWait(driver, 45) # Increased default wait from user's 20
+
+        print("Switching to the first iframe (main viz)...")
+        iframe_src = "https://ais.paho.org/ha_viz/dengue/nac/dengue_pais_anio_tben.asp"
+        # Using user's original XPATH, but CSS selector is often more robust if structure allows
+        iframe_locator = (By.XPATH, f"//div[contains(@class, 'vizTab')]//iframe[@src='{iframe_src}']")
+        wait.until(EC.frame_to_be_available_and_switch_to_it(iframe_locator))
+        print("Switched to first iframe.")
+        time.sleep(5)
+
+        print("Looking for nested iframe within the first iframe's content...")
+        nested_iframe_locator = (By.XPATH, "//body/iframe") # User's original XPATH
+        wait.until(EC.frame_to_be_available_and_switch_to_it(nested_iframe_locator))
+        print("Switched to the nested iframe (vizcontent).")
+        time.sleep(5)
+
+        shadow_doc2_context = driver.execute_script('return document') # User's method for context
+
+        iframe_page_title = driver.title
+        print(f"Title of nested iframe content: {iframe_page_title}")
+        if "PAHO/WHO Data" not in iframe_page_title: # More flexible check
+            raise Exception(f"Wrong iframe content loaded. Title: {iframe_page_title}")
+        print("Successfully accessed the main dashboard content.")
+        time.sleep(5)
+
+        # --- Select Target Years (2023, 2024, 2025) and Verify ---
+        print(f"Attempting to select and verify years: {', '.join(target_years_to_select)}...")
+        year_tab_id = 'tabZoneId13'
+        year_tab = wait.until(EC.visibility_of_element_located((By.ID, year_tab_id)))
+
+        dd_locator = (By.CSS_SELECTOR, 'span.tabComboBoxButton')
+        dd_open_button = year_tab.find_element(*dd_locator)
+        dd_open_button.click()
+        print("Clicked year dropdown open button.")
+        time.sleep(5) # Increased pause for dropdown to render
+        print("Taking screenshot: year_dropdown_opened.png")
+        driver.save_screenshot("year_dropdown_opened.png")
+
+        # Attempt to select each target year if not already selected
+        for year_str_to_select in target_years_to_select:
+            year_xpath_select = f'//div[contains(@class, "facetOverflow")]//a[text()="{year_str_to_select}"]/preceding-sibling::input'
+            try:
+                print(f"Processing year for selection: {year_str_to_select}")
+                # Wait for the specific checkbox to be present using the main driver context
+                WebDriverWait(driver, 20).until( # Increased timeout for individual year presence
+                    EC.presence_of_element_located((By.XPATH, year_xpath_select))
+                )
+                year_checkbox = shadow_doc2_context.find_element(By.XPATH, year_xpath_select)
+
+                if not year_checkbox.is_selected():
+                    print(f"Checkbox for year {year_str_to_select} is not selected. Clicking...")
+                    driver.execute_script("arguments[0].click();", year_checkbox)
+                    time.sleep(0.7)
+                    print(f"Clicked to select year {year_str_to_select}.")
+                else:
+                    print(f"Year {year_str_to_select} is already selected.")
+            except TimeoutException:
+                print(f"Timeout: Checkbox for target year {year_str_to_select} not found. This year might not be available.")
+                driver.save_screenshot(f"err_year_checkbox_timeout_{year_str_to_select}.png")
+                # This is critical, so we should raise an error if a target year isn't found
+                raise Exception(f"Target year {year_str_to_select} checkbox not found in dropdown. Cannot proceed.")
+            except Exception as e_year_select:
+                print(f"Error processing year {year_str_to_select} for selection: {e_year_select}")
+                driver.save_screenshot(f"err_year_select_{year_str_to_select}.png")
+                raise
+
+        # Verification step
+        print("Verifying year selections...")
+        all_required_years_confirmed_selected = True
+        for year_str_to_verify in target_years_to_select:
+            year_xpath_verify = f'//div[contains(@class, "facetOverflow")]//a[text()="{year_str_to_verify}"]/preceding-sibling::input'
+            try:
+                # Re-find the element for verification
+                year_checkbox_verify = shadow_doc2_context.find_element(By.XPATH, year_xpath_verify)
+                if year_checkbox_verify.is_selected():
+                    print(f"Verified: Year {year_str_to_verify} is selected.")
+                else:
+                    print(f"Verification FAILED: Year {year_str_to_verify} is NOT selected.")
+                    all_required_years_confirmed_selected = False
+                    driver.save_screenshot(f"err_year_verify_not_selected_{year_str_to_verify}.png")
+            except Exception as e_verify:
+                print(f"Verification Error: Could not find/check checkbox for year {year_str_to_verify}: {e_verify}")
+                all_required_years_confirmed_selected = False
+                driver.save_screenshot(f"err_year_verify_find_{year_str_to_verify}.png")
+
+        if not all_required_years_confirmed_selected:
+            error_message = f"Critical Error: Not all target years ({', '.join(target_years_to_select)}) were confirmed as selected. Quitting."
+            print(error_message)
+            raise Exception(error_message) # This will be caught by the main try-except and quit driver
+
+        print("All target years successfully selected and verified.")
+
+        print("Closing year dropdown...")
+        dd_close_locator = (By.CLASS_NAME, "tab-glass")
+        dd_close_button = wait.until(EC.element_to_be_clickable(dd_close_locator))
+        dd_close_button.click()
+        print("Closed year dropdown.")
+        time.sleep(5)
+
+        # --- ADJUST EPI WEEK TO STARTING WEEK (53) USING SLIDER BUTTONS ---
+        print("-" * 30)
+        print("Adjusting Epidemiological Week to 53 using slider buttons...")
+        TARGET_START_WEEK = 53
+        SLIDER_TEXT_LOCATOR_WEEK = (By.CSS_SELECTOR, ".sliderText")
+        INCREMENT_BUTTON_LOCATOR = (By.XPATH, "//*[contains(@class, 'tableauArrowInc') or contains(@class, 'dijitSliderIncrementIconH')]")
+        DECREMENT_BUTTON_LOCATOR = (By.XPATH, "//*[contains(@class, 'tableauArrowDec') or contains(@class, 'dijitSliderDecrementIconH')]")
+
+        max_slider_adjust_attempts = 70
+        slider_adjust_attempts = 0
+        current_week_value_read = -1
+
+        while slider_adjust_attempts < max_slider_adjust_attempts:
+            try:
+                slider_text_elements = WebDriverWait(driver, 20).until(
+                    EC.presence_of_all_elements_located(SLIDER_TEXT_LOCATOR_WEEK)
+                )
+                visible_slider_text_element = next((elem for elem in slider_text_elements if elem.is_displayed()), None)
+
+                if not visible_slider_text_element:
+                    print("Error: Slider text element for week not visible. Cannot proceed.")
+                    driver.save_screenshot(f"err_slider_text_not_visible_adj_attempt_{slider_adjust_attempts}.png")
+                    raise Exception("Slider text for week not visible during adjustment.")
+
+                current_week_text = visible_slider_text_element.text.strip()
+                cleaned_text = "".join(filter(str.isdigit, current_week_text))
+
+                if not cleaned_text:
+                    print(f"Warning: Could not parse digits from slider text '{current_week_text}'. Retrying...")
+                    time.sleep(3)
+                    slider_adjust_attempts += 1
+                    continue
+
+                current_week_value_read = int(cleaned_text)
+                print(f"Current week on slider: {current_week_value_read}")
+
+                if current_week_value_read == TARGET_START_WEEK:
+                    print(f"Successfully reached target start week {TARGET_START_WEEK}.")
+                    break
+                elif current_week_value_read < TARGET_START_WEEK:
+                    print(f"Current week {current_week_value_read} < {TARGET_START_WEEK}. Clicking increment...")
+                    action_button = WebDriverWait(driver, 20).until(
+                        EC.element_to_be_clickable(INCREMENT_BUTTON_LOCATOR)
+                    )
+                    action_button.click()
+                elif current_week_value_read > TARGET_START_WEEK:
+                    print(f"Current week {current_week_value_read} > {TARGET_START_WEEK}. Clicking decrement...")
+                    action_button = WebDriverWait(driver, 20).until(
+                        EC.element_to_be_clickable(DECREMENT_BUTTON_LOCATOR)
+                    )
+                    action_button.click()
+
+                time.sleep(3)
+                slider_adjust_attempts += 1
+
+            except TimeoutException as e_slider_timeout:
+                print(f"Timeout during week adjustment (attempt {slider_adjust_attempts}): {e_slider_timeout}")
+                driver.save_screenshot(f"err_timeout_slider_adj_wk{slider_adjust_attempts}.png")
+                raise
+            except Exception as e_slider_err:
+                print(f"Error during week adjustment (attempt {slider_adjust_attempts}): {e_slider_err}")
+                driver.save_screenshot(f"err_slider_adj_wk{slider_adjust_attempts}.png")
+                if slider_adjust_attempts >= max_slider_adjust_attempts -1 : raise
+                time.sleep(3)
+                slider_adjust_attempts +=1
+
+        if slider_adjust_attempts >= max_slider_adjust_attempts and current_week_value_read != TARGET_START_WEEK:
+            print(f"Error: Max attempts ({max_slider_adjust_attempts}) to set week to {TARGET_START_WEEK}. Last read: {current_week_value_read}")
+            raise Exception(f"Failed to set week to {TARGET_START_WEEK} using slider buttons.")
+
+        print("Week adjustment process (using slider buttons) finished.")
+        print("-" * 30)
+        # --- END ADJUST EPI WEEK ---
+
+        # --- Download Loop ---
+        weeknum_for_loop = TARGET_START_WEEK
+        print(f"--- Starting Download Loop for Year(s) '{year_label_for_filename}' from Week {weeknum_for_loop} ---")
+
+        # Initial download for the starting week
+        print(f"Initial download for Week Number: {weeknum_for_loop}")
+        download_and_rename(wait, shadow_doc2_context, weeknum_for_loop, default_download_dir_for_chrome, final_file_destination_path, driver, year_label_for_filename, today_timestamp)
+
+        # Decrement and download for subsequent weeks
+        while weeknum_for_loop > 1:
+            print("-" * 20)
+            target_decrement_week = weeknum_for_loop - 1
+            print(f"Attempting to decrement to Week Number: {target_decrement_week}")
+            try:
+                decrement_button_actual_locator = DECREMENT_BUTTON_LOCATOR
+                decrement_button = wait.until(EC.element_to_be_clickable(decrement_button_actual_locator))
+                decrement_button.click()
+                print(f"Clicked decrement button. Aiming for week {target_decrement_week}.")
+                time.sleep(6)
+            except Exception as e_dec:
+                print(f"Error clicking decrement button for week {target_decrement_week}: {e_dec}")
+                driver.save_screenshot(f"err_decrement_week_{target_decrement_week}.png")
+                break
+
+            weeknum_for_loop = target_decrement_week
+            download_and_rename(wait, shadow_doc2_context, weeknum_for_loop, default_download_dir_for_chrome, final_file_destination_path, driver, year_label_for_filename, today_timestamp)
+
+        print(f"--- Finished Download Loop for Year(s) '{year_label_for_filename}' ---")
+
+    except Exception as e:
+        print(f"An critical error occurred in iterate_weekly: {type(e).__name__} - {e}")
+        if driver:
+            timestamp_err = time.strftime("%Y%m%d-%H%M%S")
+            screenshot_path = os.path.join(os.getcwd(), f"critical_error_main_process_{timestamp_err}.png")
+            try:
+                driver.save_screenshot(screenshot_path)
+                print(f"Screenshot saved: {screenshot_path}")
+            except Exception as scr_e:
+                print(f"Could not save screenshot: {scr_e}")
+    finally:
+        if driver:
+            print("Closing WebDriver...")
+            driver.quit()
+        print("Script finished.")
+
+if __name__ == "__main__":
+    iterate_weekly()
