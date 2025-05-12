@@ -287,76 +287,72 @@ def iterate_weekly():
         print("Successfully accessed the main dashboard content.")
         time.sleep(5)
 
-        # --- Select Multiple Target Years (2023, 2024, 2025) ---
-        print(f"Attempting to select years: {', '.join(target_years_to_select)}...")
-        year_tab_id = 'tabZoneId13' # User's original ID
+        # --- Select Target Years (2023, 2024, 2025) and Verify ---
+        print(f"Attempting to select and verify years: {', '.join(target_years_to_select)}...")
+        year_tab_id = 'tabZoneId13'
         year_tab = wait.until(EC.visibility_of_element_located((By.ID, year_tab_id)))
 
-        dd_locator = (By.CSS_SELECTOR, 'span.tabComboBoxButton') # User's original selector
+        dd_locator = (By.CSS_SELECTOR, 'span.tabComboBoxButton')
         dd_open_button = year_tab.find_element(*dd_locator)
         dd_open_button.click()
         print("Clicked year dropdown open button.")
-        time.sleep(5) # ** INCREASED PAUSE for dropdown to render **
+        time.sleep(5) # Increased pause for dropdown to render
         print("Taking screenshot: year_dropdown_opened.png")
         driver.save_screenshot("year_dropdown_opened.png")
 
+        # Attempt to select each target year if not already selected
+        for year_str_to_select in target_years_to_select:
+            year_xpath_select = f'//div[contains(@class, "facetOverflow")]//a[text()="{year_str_to_select}"]/preceding-sibling::input'
+            try:
+                print(f"Processing year for selection: {year_str_to_select}")
+                # Wait for the specific checkbox to be present using the main driver context
+                WebDriverWait(driver, 20).until( # Increased timeout for individual year presence
+                    EC.presence_of_element_located((By.XPATH, year_xpath_select))
+                )
+                year_checkbox = shadow_doc2_context.find_element(By.XPATH, year_xpath_select)
 
-        # Find all year options (input checkboxes and their corresponding 'a' tag for text)
-        all_year_inputs_xpath = '//div[contains(@class, "facetOverflow")]//div[contains(@class, "valueSection")]//input[@type="checkbox"]'
-        all_year_labels_xpath = '//div[contains(@class, "facetOverflow")]//div[contains(@class, "valueSection")]//a'
+                if not year_checkbox.is_selected():
+                    print(f"Checkbox for year {year_str_to_select} is not selected. Clicking...")
+                    driver.execute_script("arguments[0].click();", year_checkbox)
+                    time.sleep(0.7)
+                    print(f"Clicked to select year {year_str_to_select}.")
+                else:
+                    print(f"Year {year_str_to_select} is already selected.")
+            except TimeoutException:
+                print(f"Timeout: Checkbox for target year {year_str_to_select} not found. This year might not be available.")
+                driver.save_screenshot(f"err_year_checkbox_timeout_{year_str_to_select}.png")
+                # This is critical, so we should raise an error if a target year isn't found
+                raise Exception(f"Target year {year_str_to_select} checkbox not found in dropdown. Cannot proceed.")
+            except Exception as e_year_select:
+                print(f"Error processing year {year_str_to_select} for selection: {e_year_select}")
+                driver.save_screenshot(f"err_year_select_{year_str_to_select}.png")
+                raise
 
-        print(f"Waiting for year options to be present using XPath: {all_year_inputs_xpath}")
-        try:
-            # ** INCREASED TIMEOUT for year options **
-            WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.XPATH, all_year_inputs_xpath)))
-        except TimeoutException as e_year_options_present:
-            print("Timeout waiting for year options (checkboxes) to be present. Taking screenshot: err_year_options_not_present.png")
-            driver.save_screenshot("err_year_options_not_present.png")
-            raise e_year_options_present # Re-raise the exception to stop the script
+        # Verification step
+        print("Verifying year selections...")
+        all_required_years_confirmed_selected = True
+        for year_str_to_verify in target_years_to_select:
+            year_xpath_verify = f'//div[contains(@class, "facetOverflow")]//a[text()="{year_str_to_verify}"]/preceding-sibling::input'
+            try:
+                # Re-find the element for verification
+                year_checkbox_verify = shadow_doc2_context.find_element(By.XPATH, year_xpath_verify)
+                if year_checkbox_verify.is_selected():
+                    print(f"Verified: Year {year_str_to_verify} is selected.")
+                else:
+                    print(f"Verification FAILED: Year {year_str_to_verify} is NOT selected.")
+                    all_required_years_confirmed_selected = False
+                    driver.save_screenshot(f"err_year_verify_not_selected_{year_str_to_verify}.png")
+            except Exception as e_verify:
+                print(f"Verification Error: Could not find/check checkbox for year {year_str_to_verify}: {e_verify}")
+                all_required_years_confirmed_selected = False
+                driver.save_screenshot(f"err_year_verify_find_{year_str_to_verify}.png")
 
-        print("Year options are present. Fetching elements...")
-        time.sleep(2) # Extra pause for all items to fully render after presence
+        if not all_required_years_confirmed_selected:
+            error_message = f"Critical Error: Not all target years ({', '.join(target_years_to_select)}) were confirmed as selected. Quitting."
+            print(error_message)
+            raise Exception(error_message) # This will be caught by the main try-except and quit driver
 
-        year_input_elements = shadow_doc2_context.find_elements(By.XPATH, all_year_inputs_xpath)
-        year_label_elements = shadow_doc2_context.find_elements(By.XPATH, all_year_labels_xpath)
-
-        if not year_input_elements or len(year_input_elements) != len(year_label_elements):
-            print(f"Error: Could not find year options or mismatch in inputs ({len(year_input_elements)}) and labels ({len(year_label_elements)}).")
-            driver.save_screenshot("err_year_options_mismatch.png")
-            if not year_input_elements:
-                 raise Exception("No year input elements found in the dropdown.")
-        else:
-            print(f"Found {len(year_input_elements)} year options in dropdown.")
-            for i in range(len(year_input_elements)):
-                year_input = year_input_elements[i]
-                try:
-                    year_text_element = year_label_elements[i]
-                    year_text = year_text_element.text.strip()
-                    if not year_text:
-                        year_text = year_text_element.get_attribute("title") or \
-                                    driver.execute_script("return arguments[0].innerText;", year_text_element)
-                        year_text = year_text.strip() if year_text else "UNKNOWN_YEAR"
-
-                    is_selected_by_script = year_input.is_selected()
-
-                    if year_text in target_years_to_select:
-                        if not is_selected_by_script:
-                            print(f"Selecting year: {year_text}")
-                            driver.execute_script("arguments[0].click();", year_input)
-                            time.sleep(0.7)
-                        else:
-                            print(f"Year {year_text} is already selected.")
-                    else:
-                        if is_selected_by_script:
-                            print(f"Deselecting year: {year_text}")
-                            driver.execute_script("arguments[0].click();", year_input)
-                            time.sleep(0.7)
-                except Exception as e_year_item:
-                    print(f"Warning: Error processing year item {i} (text: '{year_text if 'year_text' in locals() else 'N/A'}'): {e_year_item}. Skipping this item.")
-                    driver.save_screenshot(f"err_processing_year_item_{i}.png")
-                    continue
-
-            print("Finished processing year selections.")
+        print("All target years successfully selected and verified.")
 
         print("Closing year dropdown...")
         dd_close_locator = (By.CLASS_NAME, "tab-glass")
