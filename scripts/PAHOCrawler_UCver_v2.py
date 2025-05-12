@@ -216,9 +216,6 @@ def iterate_weekly():
     final_data_storage_base = os.path.join(github_workspace_env, 'data')
 
     # Temporary directory for Chrome downloads (must be absolute)
-    # Using user's original `default_dir = os.getcwd()` for Chrome's default download.
-    # This means downloads will go to the root of the workspace in GHA, or current dir locally.
-    # This needs to be an absolute path for Chrome prefs.
     default_download_dir_for_chrome = os.path.abspath(os.getcwd())
     print(f"Chrome configured to download files to: {default_download_dir_for_chrome}")
 
@@ -299,46 +296,64 @@ def iterate_weekly():
         dd_open_button = year_tab.find_element(*dd_locator)
         dd_open_button.click()
         print("Clicked year dropdown open button.")
-        time.sleep(2) # Allow dropdown to render
+        time.sleep(3) # ** INCREASED PAUSE for dropdown to render **
+        print("Taking screenshot: year_dropdown_opened.png")
+        driver.save_screenshot("year_dropdown_opened.png")
+
 
         # Find all year options (input checkboxes and their corresponding 'a' tag for text)
-        # This assumes a structure like: <input type="checkbox"> <a ...>YEAR_TEXT</a>
-        # Adjust XPATH if structure is different.
         all_year_inputs_xpath = '//div[contains(@class, "facetOverflow")]//div[contains(@class, "valueSection")]//input[@type="checkbox"]'
         all_year_labels_xpath = '//div[contains(@class, "facetOverflow")]//div[contains(@class, "valueSection")]//a'
 
-        # Wait for at least one year option to be present to ensure dropdown is populated
-        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, all_year_inputs_xpath)))
-        time.sleep(1) # Extra pause for all items
+        print(f"Waiting for year options to be present using XPath: {all_year_inputs_xpath}")
+        # ** INCREASED TIMEOUT for year options **
+        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, all_year_inputs_xpath)))
+        print("Year options are present. Fetching elements...")
+        time.sleep(1.5) # Extra pause for all items to fully render after presence
 
         year_input_elements = shadow_doc2_context.find_elements(By.XPATH, all_year_inputs_xpath)
         year_label_elements = shadow_doc2_context.find_elements(By.XPATH, all_year_labels_xpath)
 
         if not year_input_elements or len(year_input_elements) != len(year_label_elements):
-            print("Error: Could not find year options or mismatch in inputs and labels. Skipping multi-year selection.")
-            driver.save_screenshot("err_year_options_not_found.png")
+            print(f"Error: Could not find year options or mismatch in inputs ({len(year_input_elements)}) and labels ({len(year_label_elements)}).")
+            driver.save_screenshot("err_year_options_mismatch.png")
+            # Decide if to raise error or continue if some years might be selectable
+            # For now, let's try to proceed if any elements were found, but log a clear warning.
+            if not year_input_elements:
+                 raise Exception("No year input elements found in the dropdown.")
         else:
             print(f"Found {len(year_input_elements)} year options in dropdown.")
             for i in range(len(year_input_elements)):
                 year_input = year_input_elements[i]
-                year_text = year_label_elements[i].text.strip()
+                # Handle potential StaleElementReferenceException if DOM changes during iteration
+                try:
+                    year_text_element = year_label_elements[i]
+                    year_text = year_text_element.text.strip()
+                    if not year_text: # If 'a' tag has no direct text, try to get it from a child span or title
+                        year_text = year_text_element.get_attribute("title") or \
+                                    driver.execute_script("return arguments[0].innerText;", year_text_element)
+                        year_text = year_text.strip() if year_text else "UNKNOWN_YEAR"
 
-                is_selected_by_script = year_input.is_selected() # Check current state
 
-                if year_text in target_years_to_select:
-                    if not is_selected_by_script:
-                        print(f"Selecting year: {year_text}")
-                        driver.execute_script("arguments[0].click();", year_input) # JS click for reliability
-                        time.sleep(0.5) # Pause between clicks
+                    is_selected_by_script = year_input.is_selected()
+
+                    if year_text in target_years_to_select:
+                        if not is_selected_by_script:
+                            print(f"Selecting year: {year_text}")
+                            driver.execute_script("arguments[0].click();", year_input)
+                            time.sleep(0.7) # Pause between clicks
+                        else:
+                            print(f"Year {year_text} is already selected.")
                     else:
-                        print(f"Year {year_text} is already selected.")
-                else: # For years NOT in target_years_to_select, ensure they are DESELECTED
-                    if is_selected_by_script:
-                        print(f"Deselecting year: {year_text}")
-                        driver.execute_script("arguments[0].click();", year_input)
-                        time.sleep(0.5)
-                    # else:
-                        # print(f"Year {year_text} is already deselected (and not a target).")
+                        if is_selected_by_script:
+                            print(f"Deselecting year: {year_text}")
+                            driver.execute_script("arguments[0].click();", year_input)
+                            time.sleep(0.7)
+                except Exception as e_year_item:
+                    print(f"Warning: Error processing year item {i}: {e_year_item}. Skipping this item.")
+                    driver.save_screenshot(f"err_processing_year_item_{i}.png")
+                    continue # Continue to the next year item
+
             print("Finished processing year selections.")
 
         print("Closing year dropdown...")
@@ -423,7 +438,6 @@ def iterate_weekly():
         # --- END ADJUST EPI WEEK ---
 
         # --- Download Loop ---
-        # The week to start downloads from is now confirmed to be TARGET_START_WEEK (e.g., 53)
         weeknum_for_loop = TARGET_START_WEEK
         print(f"--- Starting Download Loop for Year(s) '{year_label_for_filename}' from Week {weeknum_for_loop} ---")
 
