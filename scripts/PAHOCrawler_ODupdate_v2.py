@@ -201,7 +201,7 @@ def iterate_weekly():
     # --- Directory Setup ---
     # Base directory for all data output
     github_workspace_env = os.getenv('GITHUB_WORKSPACE', os.getcwd()) # Default to current dir if not in GHA
-    base_output_dir = os.path.join(github_workspace_env, 'data_output')
+    base_output_dir = os.path.join(github_workspace_env, 'data')
 
     # Temporary directory for Chrome downloads
     if is_github_actions:
