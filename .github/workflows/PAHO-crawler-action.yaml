@@ -27,7 +27,7 @@ jobs:
             
                    
       - name: Running the Python script
-        run: python scripts/PAHOCrawler_UCver.py
+        run: python scripts/PAHOCrawler_UCver_v2.py
         
       - name: Commit and Push 
         run: |
