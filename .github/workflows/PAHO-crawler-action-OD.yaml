@@ -19,15 +19,20 @@ jobs:
           pip install undetected_chromedriver
           pip install setuptools
           pip install webdriver_manager
-        
+
       - name: Create data directory
         run: mkdir -p ${{ github.workspace }}/data
-            
-                   
+
+      - name: Install Google Chrome Stable # STEP 1: Install Chrome
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y google-chrome-stable
+          google-chrome-stable --version # Verify installation
+
       - name: Running the Python script
         run: python scripts/PAHOCrawler_ODupdate_v2.py
-        
-      - name: Commit and Push 
+
+      - name: Commit and Push
         run: |
          git config --global user.name "github-actions[bot]"
          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -36,4 +41,4 @@ jobs:
          git commit -am "Latest OD data: ${timestamp}" || exit 0
          git push
 
-        
+
