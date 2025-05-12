@@ -65,7 +65,7 @@ def get_chrome_version():
         return None
 
 # Get the major version of Chrome installed (can be None)
-chrome_version_detected = get_chrome_version()
+chrome_version = get_chrome_version()
 
 def move_to_download_folder(default_chrome_download_dir, final_destination_path, new_file_name_stem, file_extension):
     """
