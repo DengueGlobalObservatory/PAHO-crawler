@@ -201,12 +201,10 @@ def iterate_weekly():
     # --- Directory Setup ---
     # Base directory for all data output
     github_workspace_env = os.getenv('GITHUB_WORKSPACE', os.getcwd()) # Default to current dir if not in GHA
-    base_output_dir = os.path.join(github_workspace_env, 'data_output') # Changed from 'data' to avoid conflict if 'data' is source
+    base_output_dir = os.path.join(github_workspace_env, 'data_output')
 
     # Temporary directory for Chrome downloads
-    # This MUST be an absolute path. In GitHub Actions, use runner's temp dir or workspace.
     if is_github_actions:
-        # temp_download_dir_for_chrome = os.path.join(os.getenv('RUNNER_TEMP', '/tmp'), 'chrome_downloads') # Runner's temp dir
         temp_download_dir_for_chrome = os.path.abspath(os.path.join(github_workspace_env, 'temp_chrome_downloads'))
     else: # Local execution
         temp_download_dir_for_chrome = os.path.abspath(os.path.join(os.getcwd(), "temp_chrome_downloads"))
@@ -227,53 +225,50 @@ def iterate_weekly():
         prefs = {
             "download.default_directory": temp_download_dir_for_chrome,
             "download.prompt_for_download": False,
-            "safebrowsing.enabled": True, # Can be true or false
-            "profile.default_content_settings.popups": 0 # Allow popups if any are used for download dialogs
+            "safebrowsing.enabled": True,
+            "profile.default_content_settings.popups": 0
         }
         chrome_options.add_experimental_option("prefs", prefs)
 
-        # --- CRITICAL for GitHub Actions ---
         if is_github_actions:
             print("Applying GitHub Actions specific Chrome options (headless, no-sandbox, etc.).")
             chrome_options.add_argument('--headless')
-            chrome_options.add_argument('--no-sandbox') # Essential for running as root/in container
-            chrome_options.add_argument('--disable-dev-shm-usage') # Overcomes limited resource problems
-            chrome_options.add_argument('--disable-gpu') # GPU not available
-            chrome_options.add_argument("--window-size=1920,1080") # Can help with element rendering
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument('--disable-gpu')
+            chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--disable-extensions")
             chrome_options.add_argument("--proxy-server='direct://'")
             chrome_options.add_argument("--proxy-bypass-list=*")
             chrome_options.add_argument("--start-maximized")
-            # chrome_options.add_argument(f"--user-agent=Mozilla/5.0 ...") # If needed
-        # --- End GitHub Actions specific options ---
 
-        driver_version_main = chrome_version_detected # Use detected version if available, else None
+        driver_version_main = chrome_version_detected
         driver = uc.Chrome(
             options=chrome_options,
             version_main=driver_version_main,
-            headless=is_github_actions, # Explicitly set headless based on environment
-            use_subprocess=True # Recommended by uc docs for stability in some cases
+            headless=is_github_actions,
+            use_subprocess=True
         )
-        if not is_github_actions: # Maximize only if not headless
+        if not is_github_actions:
             driver.maximize_window()
 
         print("Navigating to PAHO data page...")
         driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
 
-        wait = WebDriverWait(driver, 45) # Increased wait time for page elements
+        wait = WebDriverWait(driver, 45)
 
         print("Switching to the first iframe (main viz)...")
         iframe_src = "https://ais.paho.org/ha_viz/dengue/nac/dengue_pais_anio_tben.asp"
         iframe_locator = (By.CSS_SELECTOR, f"iframe[src='{iframe_src}']")
         wait.until(EC.frame_to_be_available_and_switch_to_it(iframe_locator))
         print("Switched to first iframe.")
-        time.sleep(5) # Increased sleep after frame switch
+        time.sleep(5)
 
         print("Looking for nested iframe within the first iframe's content...")
         nested_iframe_locator = (By.TAG_NAME, "iframe")
         wait.until(EC.frame_to_be_available_and_switch_to_it(nested_iframe_locator))
         print("Switched to the nested iframe (vizcontent).")
-        time.sleep(5) # Increased sleep
+        time.sleep(5)
 
         shadow_doc2_context = driver.execute_script('return document')
 
@@ -282,7 +277,7 @@ def iterate_weekly():
         if "PAHO/WHO Data" not in iframe_page_title:
             raise Exception(f"Wrong iframe content loaded. Title: {iframe_page_title}")
         print("Successfully accessed the main dashboard content.")
-        time.sleep(5) # Wait for dashboard elements to fully render
+        time.sleep(5)
 
         print(f"Selecting year filter value: '{year_filter_value}'...")
         year_tab_id = 'tabZoneId13'
@@ -291,10 +286,9 @@ def iterate_weekly():
         dd_open = year_tab.find_element(*dd_locator)
         dd_open.click()
         print("Clicked year dropdown.")
-        time.sleep(2) # Allow dropdown to open fully
+        time.sleep(2)
 
         year_xpath = f'//div[contains(@class, "facetOverflow")]//a[text()="{year_filter_value}"]/preceding-sibling::input'
-        # Use shadow_doc2_context to find, driver to execute JS click
         year_element_for_click = shadow_doc2_context.find_element(By.XPATH, year_xpath)
         driver.execute_script("arguments[0].scrollIntoView(true); arguments[0].click();", year_element_for_click)
         print(f"Selected year '{year_filter_value}'.")
@@ -305,13 +299,13 @@ def iterate_weekly():
         dd_close = wait.until(EC.element_to_be_clickable(dd_close_locator))
         dd_close.click()
         print("Closed year dropdown.")
-        time.sleep(5) # Increased sleep after filter change
+        time.sleep(5)
 
         # --- SET EPI WEEK TO 53 ---
         print("-" * 30)
         print("Ensuring Epidemiological Week is set to 53...")
         TARGET_WEEK_TO_SET = 53
-        WEEK_INTERACTION_TIMEOUT = 30 # Increased timeout for these interactions
+        WEEK_INTERACTION_TIMEOUT = 30
 
         SLIDER_TEXT_LOCATOR_WEEK = (By.CSS_SELECTOR, ".sliderText")
         WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR = (By.ID, "dijit_form_Button_3")
@@ -329,32 +323,65 @@ def iterate_weekly():
                     current_week_value_read = int(cleaned_text)
                     print(f"Current week detected as: {current_week_value_read}")
             else: print(f"No visible {SLIDER_TEXT_LOCATOR_WEEK} found.")
-        except TimeoutException: print(f"Timeout waiting for {SLIDER_TEXT_LOCATOR_WEEK}.")
-        except Exception as e: print(f"Error reading initial week: {e}")
+        except TimeoutException: print(f"Timeout waiting for {SLIDER_TEXT_LOCATOR_WEEK} to read initial value.") # Keep this specific
+        except Exception as e_read: print(f"Error reading initial week value: {e_read}")
 
         if current_week_value_read != TARGET_WEEK_TO_SET:
             print(f"Current week {current_week_value_read if current_week_value_read != -1 else 'unknown'} is not {TARGET_WEEK_TO_SET}. Updating...")
+
+            # --- Step 1: Click Search Activator ---
             try:
+                print(f"Locating and clicking week search activator: {WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR}")
                 search_activator = wait.until(EC.element_to_be_clickable(WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR))
-                search_activator.click(); print("Clicked week search activator.")
-                time.sleep(2)
+                search_activator.click()
+                print("Clicked week search activator.")
+                time.sleep(2.5) # Increased pause for search input to appear/activate
+            except TimeoutException as e_activator:
+                print(f"Timeout clicking week search activator ({WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR}): {e_activator}")
+                driver.save_screenshot(f"err_click_search_activator_wk{TARGET_WEEK_TO_SET}.png")
+                raise # Re-raise to be caught by the outer "critical error" block
+            except Exception as e_activator_other:
+                print(f"Other error clicking week search activator ({WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR}): {e_activator_other}")
+                driver.save_screenshot(f"err_other_search_activator_wk{TARGET_WEEK_TO_SET}.png")
+                raise
+
+            # --- Step 2: Interact with Search Input ---
+            try:
+                print(f"Interacting with week search input: {SEARCH_INPUT_TEXT_FIELD_LOCATOR}")
                 search_input = wait.until(EC.element_to_be_clickable(SEARCH_INPUT_TEXT_FIELD_LOCATOR))
-                search_input.click(); search_input.clear()
+                print("Search input field is clickable.")
+                search_input.click()
+                search_input.clear()
                 search_input.send_keys(str(TARGET_WEEK_TO_SET))
                 print(f"Typed '{TARGET_WEEK_TO_SET}'.")
                 time.sleep(0.5)
-                search_input.send_keys(Keys.ENTER); print("Sent Keys.ENTER.")
-                time.sleep(5) # Allow filter to apply
-            except Exception as e_week_set:
-                print(f"Error setting week to {TARGET_WEEK_TO_SET}: {e_week_set}")
-                driver.save_screenshot(f"err_set_week_{TARGET_WEEK_TO_SET}.png")
+                search_input.send_keys(Keys.ENTER)
+                print("Sent Keys.ENTER.")
+                time.sleep(5) # Allow filter to apply fully
+            except TimeoutException as e_input_timeout:
+                print(f"Timeout interacting with week search input ({SEARCH_INPUT_TEXT_FIELD_LOCATOR}): {e_input_timeout}")
+                driver.save_screenshot(f"err_timeout_search_input_wk{TARGET_WEEK_TO_SET}.png")
                 raise
-            try: # Optional verification
+            except ElementNotInteractableException as e_input_interact:
+                print(f"ElementNotInteractableException with week search input ({SEARCH_INPUT_TEXT_FIELD_LOCATOR}): {e_input_interact}")
+                driver.save_screenshot(f"err_interactable_search_input_wk{TARGET_WEEK_TO_SET}.png")
+                raise
+            except Exception as e_input_other:
+                print(f"Other error with week search input ({SEARCH_INPUT_TEXT_FIELD_LOCATOR}): {e_input_other}")
+                driver.save_screenshot(f"err_other_search_input_wk{TARGET_WEEK_TO_SET}.png")
+                raise
+
+            # --- Step 3: Optional Verification ---
+            try:
+                print(f"Verifying week update by checking {SLIDER_TEXT_LOCATOR_WEEK} for '{TARGET_WEEK_TO_SET}'...")
                 WebDriverWait(driver, WEEK_INTERACTION_TIMEOUT).until(
                     EC.text_to_be_present_in_element_located(SLIDER_TEXT_LOCATOR_WEEK, str(TARGET_WEEK_TO_SET)))
-                print(f"Verification successful: Week is {TARGET_WEEK_TO_SET}.")
-            except TimeoutException: print(f"Verification WARNING: Slider text did not update to {TARGET_WEEK_TO_SET}.")
-        else: print(f"Week is already correctly set to {TARGET_WEEK_TO_SET}.")
+                print(f"Verification successful: Week appears to be set to {TARGET_WEEK_TO_SET}.")
+            except TimeoutException:
+                print(f"Verification WARNING: Slider text did not update to {TARGET_WEEK_TO_SET} within timeout.")
+                # driver.save_screenshot(f"warn_verify_timeout_wk{TARGET_WEEK_TO_SET}.png") # Optional screenshot for warning
+        else:
+            print(f"Week is already correctly set to {TARGET_WEEK_TO_SET}.")
         print("Week setting process finished.")
         print("-" * 30)
         # --- END SET EPI WEEK ---
@@ -369,11 +396,11 @@ def iterate_weekly():
             target_decrement_week = weeknum_for_loop - 1
             print(f"Attempting to decrement to Week Number: {target_decrement_week}")
             try:
-                decrement_locator = (By.XPATH, "//*[contains(@class, 'tableauArrowDec') or contains(@class, 'dijitSliderDecrementIconH')]") # Simplified
+                decrement_locator = (By.XPATH, "//*[contains(@class, 'tableauArrowDec') or contains(@class, 'dijitSliderDecrementIconH')]")
                 decrement_button = wait.until(EC.element_to_be_clickable(decrement_locator))
                 decrement_button.click()
                 print(f"Clicked decrement button. Aiming for week {target_decrement_week}.")
-                time.sleep(6) # Increased wait after decrement for UI to settle
+                time.sleep(6)
             except Exception as e_dec:
                 print(f"Error clicking decrement button for week {target_decrement_week}: {e_dec}")
                 driver.save_screenshot(f"err_decrement_week_{target_decrement_week}.png")
