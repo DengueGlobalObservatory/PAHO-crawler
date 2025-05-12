@@ -9,42 +9,63 @@ import subprocess
 import re
 import sys
 
-# Function to get the installed Chrome version (no changes from your original)
+# Function to get the installed Chrome version
 def get_chrome_version():
+    """
+    Attempts to get the installed Chrome major version.
+    More robust for different OS and common installation paths.
+    Returns None if version cannot be determined, allowing uc.Chrome to auto-detect.
+    """
     try:
+        version_match = None
         if sys.platform == "win32":
-            output = subprocess.check_output(
-                r'reg query "HKEY_CURRENT_USER\Software\Google\Chrome\BLBeacon" /v version',
-                shell=True,
-                text=True,
-                stderr=subprocess.DEVNULL # Suppress stderr for this command
-            )
-            version_match = re.search(r'\s+version\s+REG_SZ\s+(\d+)\.', output)
-        else:  # Assuming Linux or other Unix-like systems
-            version_match = None
-            for command in ['google-chrome --version', 'google-chrome-stable --version', 'chromium-browser --version']:
+            reg_paths = [
+                r'reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Google\Chrome\Update" /v LastKnownVersionString /reg:32',
+                r'reg query "HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Google\Chrome\Update" /v LastKnownVersionString /reg:64',
+                r'reg query "HKEY_CURRENT_USER\Software\Google\Chrome\BLBeacon" /v version'
+            ]
+            for path in reg_paths:
+                try:
+                    output = subprocess.check_output(path, shell=True, text=True, stderr=subprocess.DEVNULL)
+                    version_match = re.search(r'REG_SZ\s+(\d+)\.', output)
+                    if version_match: break
+                except (subprocess.CalledProcessError, FileNotFoundError): continue
+        elif sys.platform == "darwin": # macOS
+             commands = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --version']
+             for command in commands:
                 try:
                     output = subprocess.check_output(command, shell=True, text=True, stderr=subprocess.DEVNULL)
-                    version_match = re.search(r'\b(\d+)\.', output)
-                    if version_match:
-                        break
-                except (subprocess.CalledProcessError, FileNotFoundError):
-                    continue
-            if not version_match:
-                 print("Warning: Could not determine Chrome version on Linux/Unix via common commands.")
-                 return None # Let UC try to find it
+                    version_match = re.search(r'Google Chrome (\d+)\.', output)
+                    if version_match: break
+                except (subprocess.CalledProcessError, FileNotFoundError): continue
+        else:  # Linux
+            commands = [
+                'google-chrome-stable --version',
+                'google-chrome --version',
+                'chromium-browser --version',
+                'chromium --version'
+            ]
+            for command in commands:
+                try:
+                    output = subprocess.check_output(command, shell=True, text=True, stderr=subprocess.DEVNULL)
+                    version_match = re.search(r'\b(\d+)\.', output) # More general regex for version numbers
+                    if version_match: break
+                except (subprocess.CalledProcessError, FileNotFoundError): continue
 
         if version_match:
-            return int(version_match.group(1))
+            version = int(version_match.group(1))
+            print(f"Detected Chrome major version: {version}")
+            return version
         else:
-            # This case might be hit if regex fails even if command ran.
-            print("Warning: Could not parse Chrome version from command output.")
-            return None # Let UC try to find it
+            print("Could not automatically determine Chrome version. uc.Chrome will attempt auto-detection.")
+            return None # Let uc.Chrome try to find it
+
     except Exception as e:
-        print(f"Warning: Failed to get Chrome version due to: {e}. Letting UC attempt to find it.")
+        print(f"Warning: Failed to get Chrome version due to: {e}. uc.Chrome will attempt auto-detection.")
         return None
 
-chrome_version = get_chrome_version()
+# Get the major version of Chrome installed (can be None)
+chrome_version_detected = get_chrome_version()
 
 def move_to_download_folder(default_chrome_download_dir, final_destination_path, new_file_name_stem, file_extension):
     """
