@@ -221,6 +221,33 @@ def download_and_rename(wait, shadow_doc2_context, weeknum_for_file, default_dir
         driver_instance.save_screenshot(f"err_download_generic_wk{weeknum_for_file}.png")
         raise
 
+def get_current_slider_week(wait_instance, driver_instance, slider_text_locator):
+    """Reads and returns the current week from the slider text, returns -1 if error."""
+    try:
+        slider_text_elements = wait_instance.until(
+            EC.presence_of_all_elements_located(slider_text_locator)
+        )
+        visible_slider_text_element = next((elem for elem in slider_text_elements if elem.is_displayed()), None)
+        if not visible_slider_text_element:
+            print("Warning: Slider text element not visible when trying to read week.")
+            driver_instance.save_screenshot("warn_slider_text_not_visible_read.png")
+            return -1
+        current_week_text = visible_slider_text_element.text.strip()
+        cleaned_text = "".join(filter(str.isdigit, current_week_text))
+        if cleaned_text:
+            return int(cleaned_text)
+        else:
+            print(f"Warning: Could not parse digits from slider text '{current_week_text}'.")
+            return -1
+    except TimeoutException:
+        print("Warning: Timeout waiting for slider text element to read week.")
+        driver_instance.save_screenshot("warn_slider_text_timeout_read.png")
+        return -1
+    except Exception as e_read:
+        print(f"Warning: Error reading slider week: {e_read}")
+        return -1
+
+
 def iterate_weekly():
 
     # Define target years for selection
@@ -402,85 +429,67 @@ def iterate_weekly():
         current_week_value_read = -1
 
         while slider_adjust_attempts < max_slider_adjust_attempts:
-            try:
-                slider_text_elements = WebDriverWait(driver, 20).until(
-                    EC.presence_of_all_elements_located(SLIDER_TEXT_LOCATOR_WEEK)
-                )
-                visible_slider_text_element = next((elem for elem in slider_text_elements if elem.is_displayed()), None)
-
-                if not visible_slider_text_element:
-                    print("Error: Slider text element for week not visible. Cannot proceed.")
-                    driver.save_screenshot(f"err_slider_text_not_visible_adj_attempt_{slider_adjust_attempts}.png")
-                    raise Exception("Slider text for week not visible during adjustment.")
-
-                current_week_text = visible_slider_text_element.text.strip()
-                cleaned_text = "".join(filter(str.isdigit, current_week_text))
-
-                if not cleaned_text:
-                    print(f"Warning: Could not parse digits from slider text '{current_week_text}'. Retrying...")
-                    time.sleep(3)
-                    slider_adjust_attempts += 1
-                    continue
-
-                current_week_value_read = int(cleaned_text)
-                print(f"Current week on slider: {current_week_value_read}")
-
-                if current_week_value_read == TARGET_START_WEEK:
-                    print(f"Successfully reached target start week {TARGET_START_WEEK}.")
-                    break
-                elif current_week_value_read < TARGET_START_WEEK:
-                    print(f"Current week {current_week_value_read} < {TARGET_START_WEEK}. Clicking increment...")
-                    action_button = WebDriverWait(driver, 20).until(
-                        EC.element_to_be_clickable(INCREMENT_BUTTON_LOCATOR)
-                    )
-                    action_button.click()
-                elif current_week_value_read > TARGET_START_WEEK:
-                    print(f"Current week {current_week_value_read} > {TARGET_START_WEEK}. Clicking decrement...")
-                    action_button = WebDriverWait(driver, 20).until(
-                        EC.element_to_be_clickable(DECREMENT_BUTTON_LOCATOR)
-                    )
-                    action_button.click()
-
-                # Wait for the text to change to the new expected value or at least to be different from the old one.
-                # This is more robust than a fixed sleep.
-                expected_week_after_click = current_week_value_read + 1 if current_week_value_read < TARGET_START_WEEK else current_week_value_read -1
-                if current_week_value_read == TARGET_START_WEEK -1 and current_week_value_read < TARGET_START_WEEK : # about to hit target
-                    expected_week_after_click = TARGET_START_WEEK
-                elif current_week_value_read == TARGET_START_WEEK +1 and current_week_value_read > TARGET_START_WEEK: # about to hit target
-                    expected_week_after_click = TARGET_START_WEEK
-
-                print(f"Waiting for slider text to update from {current_week_value_read} (expected: {expected_week_after_click})...")
-                WebDriverWait(driver, 15).until( # Wait up to 15s for text to change
-                    EC.text_to_be_present_in_element(SLIDER_TEXT_LOCATOR_WEEK, str(expected_week_after_click))
-                )
-                print(f"Slider text updated after click.")
-                time.sleep(1) # Short additional pause after text confirms update
-
+            current_week_value_read = get_current_slider_week(wait, driver, SLIDER_TEXT_LOCATOR_WEEK)
+            if current_week_value_read == -1 and slider_adjust_attempts > 0: # If read failed after some attempts
+                print("Error: Failed to read slider week during adjustment. Cannot proceed.")
+                raise Exception("Failed to read slider week during adjustment.")
+            elif current_week_value_read == -1: # First attempt failed
+                print("Initial read of slider week failed, retrying adjustment...")
+                time.sleep(3)
                 slider_adjust_attempts += 1
-
-            except TimeoutException as e_slider_timeout:
-                print(f"Timeout during week adjustment (attempt {slider_adjust_attempts}): {e_slider_timeout}")
-                driver.save_screenshot(f"err_timeout_slider_adj_wk{slider_adjust_attempts}.png")
-                # If slider text doesn't update as expected, could be an issue.
-                # Try to re-read and continue if possible, or raise if stuck.
-                if slider_adjust_attempts > 5 : # Check if stuck after a few tries
-                    try:
-                        stuck_check_text = "".join(filter(str.isdigit, driver.find_element(*SLIDER_TEXT_LOCATOR_WEEK).text.strip()))
-                        if stuck_check_text and int(stuck_check_text) == current_week_value_read:
-                            print("Slider text seems stuck. Raising error.")
-                            raise
-                    except: pass # Ignore if re-read fails, main loop will retry or fail
-                slider_adjust_attempts += 1 # Count as an attempt even on timeout if we retry
-                if slider_adjust_attempts >= max_slider_adjust_attempts: raise
-                print("Retrying slider adjustment step...")
                 continue
 
-            except Exception as e_slider_err:
-                print(f"Error during week adjustment (attempt {slider_adjust_attempts}): {e_slider_err}")
-                driver.save_screenshot(f"err_slider_adj_wk{slider_adjust_attempts}.png")
-                if slider_adjust_attempts >= max_slider_adjust_attempts -1 : raise
-                time.sleep(3)
-                slider_adjust_attempts +=1
+
+            print(f"Current week on slider: {current_week_value_read}")
+
+            if current_week_value_read == TARGET_START_WEEK:
+                print(f"Successfully reached target start week {TARGET_START_WEEK}.")
+                break
+
+            action_button_locator = None
+            action_desc = ""
+            if current_week_value_read < TARGET_START_WEEK:
+                action_button_locator = INCREMENT_BUTTON_LOCATOR
+                action_desc = "increment"
+            elif current_week_value_read > TARGET_START_WEEK:
+                action_button_locator = DECREMENT_BUTTON_LOCATOR
+                action_desc = "decrement"
+
+            if action_button_locator:
+                print(f"Current week {current_week_value_read}. Clicking {action_desc} button...")
+                try:
+                    action_button = WebDriverWait(driver, 20).until(
+                        EC.element_to_be_clickable(action_button_locator)
+                    )
+                    action_button.click()
+                    print(f"Clicked {action_desc}.")
+
+                    # Robust wait for text to change
+                    expected_week_after_click = current_week_value_read + (1 if action_desc == "increment" else -1)
+                    print(f"Waiting for slider text to update from {current_week_value_read} to {expected_week_after_click}...")
+                    WebDriverWait(driver, 20).until( # Increased wait for text change
+                        EC.text_to_be_present_in_element(SLIDER_TEXT_LOCATOR_WEEK, str(expected_week_after_click))
+                    )
+                    print(f"Slider text confirmed updated to {expected_week_after_click}.")
+                    time.sleep(1.5) # Additional pause for data to potentially settle after UI update
+
+                except TimeoutException as e_slider_click_timeout:
+                    print(f"Timeout clicking {action_desc} or waiting for text update (attempt {slider_adjust_attempts}): {e_slider_click_timeout}")
+                    driver.save_screenshot(f"err_timeout_slider_click_adj_wk{slider_adjust_attempts}.png")
+                    # If stuck, try one more read and then potentially break or raise
+                    if slider_adjust_attempts > 3: # If it's been stuck for a few tries
+                        final_check_week = get_current_slider_week(wait, driver, SLIDER_TEXT_LOCATOR_WEEK)
+                        if final_check_week == current_week_value_read:
+                            print("Slider seems stuck after click. Aborting adjustment.")
+                            raise Exception(f"Slider stuck at week {current_week_value_read} after {action_desc} click.")
+                    # Continue to next attempt if not stuck
+                except Exception as e_slider_click_err:
+                    print(f"Error clicking {action_desc} button (attempt {slider_adjust_attempts}): {e_slider_click_err}")
+                    driver.save_screenshot(f"err_slider_click_adj_wk{slider_adjust_attempts}.png")
+                    if slider_adjust_attempts >= max_slider_adjust_attempts -1 : raise # Raise if max attempts reached
+                    # Otherwise, allow loop to retry
+
+            slider_adjust_attempts += 1
 
         if slider_adjust_attempts >= max_slider_adjust_attempts and current_week_value_read != TARGET_START_WEEK:
             print(f"Error: Max attempts ({max_slider_adjust_attempts}) to set week to {TARGET_START_WEEK}. Last read: {current_week_value_read}")
@@ -491,59 +500,67 @@ def iterate_weekly():
         # --- END ADJUST EPI WEEK ---
 
         # --- Download Loop ---
-        weeknum_for_loop_control = TARGET_START_WEEK # This controls the loop iterations
+        # Ensure we start the loop with the actual confirmed week from the slider
+        confirmed_start_week = get_current_slider_week(wait, driver, SLIDER_TEXT_LOCATOR_WEEK)
+        if confirmed_start_week != TARGET_START_WEEK:
+            print(f"CRITICAL WARNING: Week adjustment finished, but slider shows {confirmed_start_week} instead of {TARGET_START_WEEK}. Proceeding with {confirmed_start_week}.")
+            # Potentially raise an error here if strict adherence to TARGET_START_WEEK is needed
+            if confirmed_start_week == -1: # If read failed
+                print("CRITICAL ERROR: Cannot read slider week before starting download loop. Aborting.")
+                raise Exception("Cannot read slider week before download loop.")
+        else:
+            print(f"Confirmed starting week for download loop: {confirmed_start_week}")
 
-        print(f"--- Starting Download Loop for Year(s) '{year_label_for_filename}' from Week {weeknum_for_loop_control} ---")
+        week_to_download = confirmed_start_week
+
+        print(f"--- Starting Download Loop for Year(s) '{year_label_for_filename}' from Week {week_to_download} ---")
 
         # Initial download for the starting week
-        # Read the *actual* current week from slider for the first download
-        try:
-            print("Reading slider text for initial download...")
-            initial_slider_text_elem = WebDriverWait(driver, 15).until(EC.visibility_of_element_located(SLIDER_TEXT_LOCATOR_WEEK))
-            initial_observed_week_str = "".join(filter(str.isdigit, initial_slider_text_elem.text.strip()))
-            if not initial_observed_week_str: raise ValueError("Cannot read initial week for download.")
-            observed_week_for_download = int(initial_observed_week_str)
-            print(f"Initial download for Observed Week Number: {observed_week_for_download}")
-            if observed_week_for_download != TARGET_START_WEEK:
-                print(f"WARNING: Slider shows {observed_week_for_download} but expected {TARGET_START_WEEK} for initial download.")
-        except Exception as e_init_read:
-            print(f"Error reading initial week for download: {e_init_read}. Defaulting to TARGET_START_WEEK ({TARGET_START_WEEK}) for filename.")
-            observed_week_for_download = TARGET_START_WEEK # Fallback
-
-        download_and_rename(wait, shadow_doc2_context, observed_week_for_download, default_download_dir_for_chrome, final_file_destination_path, driver, year_label_for_filename, today_timestamp)
+        print(f"Initial download for Observed Week Number: {week_to_download}")
+        download_and_rename(wait, shadow_doc2_context, week_to_download, default_download_dir_for_chrome, final_file_destination_path, driver, year_label_for_filename, today_timestamp)
 
         # Decrement and download for subsequent weeks
-        current_loop_iteration_week = observed_week_for_download # Start decrementing from the actually observed week
-
-        while current_loop_iteration_week > 1:
+        while week_to_download > 1:
             print("-" * 20)
-            target_decrement_week_expected = current_loop_iteration_week - 1
-            print(f"Loop expects to decrement to Week Number: {target_decrement_week_expected}")
+            expected_week_after_decrement = week_to_download - 1
+            print(f"Loop expects to decrement to Week Number: {expected_week_after_decrement}")
 
             try:
                 decrement_button_actual_locator = DECREMENT_BUTTON_LOCATOR
                 decrement_button = wait.until(EC.element_to_be_clickable(decrement_button_actual_locator))
 
-                week_before_decrement_text_elem = WebDriverWait(driver, 15).until(EC.visibility_of_element_located(SLIDER_TEXT_LOCATOR_WEEK))
-                week_before_decrement_str = "".join(filter(str.isdigit, week_before_decrement_text_elem.text.strip()))
-                if not week_before_decrement_str: raise ValueError("Cannot read week before decrement.")
-                # week_before_decrement = int(week_before_decrement_str) # Not strictly needed for logic if we wait for target
-                print(f"Week before clicking decrement: {week_before_decrement_str}")
+                week_before_decrement_text = get_current_slider_week(wait, driver, SLIDER_TEXT_LOCATOR_WEEK)
+                print(f"Week before clicking decrement: {week_before_decrement_text if week_before_decrement_text != -1 else 'Read Error'}")
 
                 decrement_button.click()
-                print(f"Clicked decrement button. Waiting for slider to update to {target_decrement_week_expected}...")
+                print(f"Clicked decrement button. Waiting for slider to update to {expected_week_after_decrement}...")
 
-                WebDriverWait(driver, 20).until(
-                     EC.text_to_be_present_in_element(SLIDER_TEXT_LOCATOR_WEEK, str(target_decrement_week_expected))
+                WebDriverWait(driver, 25).until( # Increased wait for text to change after decrement
+                     EC.text_to_be_present_in_element(SLIDER_TEXT_LOCATOR_WEEK, str(expected_week_after_decrement))
                 )
-                print(f"Slider text confirmed updated to: {target_decrement_week_expected}")
-                time.sleep(2)
+                # Confirm by re-reading
+                time.sleep(1) # Small pause before re-reading
+                observed_week_after_decrement = get_current_slider_week(wait, driver, SLIDER_TEXT_LOCATOR_WEEK)
+                print(f"Slider text confirmed updated. Observed week: {observed_week_after_decrement}")
 
-                observed_week_for_download = target_decrement_week_expected
+                if observed_week_after_decrement != expected_week_after_decrement:
+                    print(f"WARNING: Slider did not update to expected week {expected_week_after_decrement}, shows {observed_week_after_decrement}. Using observed value.")
+                    if observed_week_after_decrement == -1: # Read error
+                        print("CRITICAL: Failed to read week after decrement. Skipping this week.")
+                        # To prevent infinite loop if week doesn't change, update control variable anyway or break
+                        week_to_download = expected_week_after_decrement
+                        continue
+
+                week_to_download = observed_week_after_decrement # Use the actually observed week for the next download
+
+                # Add a data settling pause *after* UI confirms the new week
+                print(f"Data settling pause (3s) for week {week_to_download}...")
+                time.sleep(3)
+
 
             except Exception as e_dec:
-                print(f"Error during decrement or waiting for text update for week {target_decrement_week_expected}: {e_dec}")
-                driver.save_screenshot(f"err_decrement_week_{target_decrement_week_expected}.png")
+                print(f"Error during decrement or waiting for text update for week {expected_week_after_decrement}: {e_dec}")
+                driver.save_screenshot(f"err_decrement_week_{expected_week_after_decrement}.png")
                 try:
                     stuck_week_elem = driver.find_element(*SLIDER_TEXT_LOCATOR_WEEK)
                     stuck_week_val = stuck_week_elem.text.strip()
@@ -552,8 +569,11 @@ def iterate_weekly():
                     print("Could not even re-read slider text after decrement error.")
                 break
 
-            current_loop_iteration_week = target_decrement_week_expected
-            download_and_rename(wait, shadow_doc2_context, observed_week_for_download, default_download_dir_for_chrome, final_file_destination_path, driver, year_label_for_filename, today_timestamp)
+            if week_to_download == -1: # If read failed and we decided to skip
+                print("Skipping download due to previous read error.")
+                continue
+
+            download_and_rename(wait, shadow_doc2_context, week_to_download, default_download_dir_for_chrome, final_file_destination_path, driver, year_label_for_filename, today_timestamp)
 
         print(f"--- Finished Download Loop for Year(s) '{year_label_for_filename}' ---")
 
