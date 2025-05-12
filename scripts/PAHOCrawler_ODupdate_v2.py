@@ -310,6 +310,11 @@ def iterate_weekly():
         SLIDER_TEXT_LOCATOR_WEEK = (By.CSS_SELECTOR, ".sliderText")
         WEEK_SEARCH_ACTIVATOR_BUTTON_LOCATOR = (By.ID, "dijit_form_Button_3")
         SEARCH_INPUT_TEXT_FIELD_LOCATOR = (By.ID, "dijit_form_ComboBox_0")
+        # ** NEW LOCATOR for the dropdown suggestion **
+        # This is a guess. You MUST inspect the page when the "53" suggestion appears
+        # and adjust this locator if it's different.
+        WEEK_DROPDOWN_SUGGESTION_LOCATOR = (By.XPATH, f"//div[contains(@class, 'dijitMenuItem') and normalize-space(.)='{TARGET_WEEK_TO_SET}'] | //div[contains(@class, 'dijitComboBoxPopup')]//div[normalize-space(.)='{TARGET_WEEK_TO_SET}']")
+
 
         current_week_value_read = -1
         try:
@@ -372,7 +377,7 @@ def iterate_weekly():
                 raise Exception("Failed to click search activator button.")
 
             print("Pause after clicking search activator to allow UI to update...")
-            time.sleep(3.5) # Slightly increased pause for search input to appear/activate
+            time.sleep(3.5)
             print(f"Taking screenshot: post_activator_click_wk{TARGET_WEEK_TO_SET}.png")
             driver.save_screenshot(f"post_activator_click_wk{TARGET_WEEK_TO_SET}.png")
 
@@ -386,7 +391,7 @@ def iterate_weekly():
                     EC.presence_of_element_located(SEARCH_INPUT_TEXT_FIELD_LOCATOR)
                 )
                 print("Search input present. Scrolling into view (if needed)...")
-                driver.execute_script("arguments[0].scrollIntoView(false);", search_input_present); # Scroll to bottom of element
+                driver.execute_script("arguments[0].scrollIntoView(false);", search_input_present);
                 time.sleep(0.5)
 
                 print("Waiting for search input to be visible...")
@@ -407,41 +412,31 @@ def iterate_weekly():
                 search_input.clear()
                 search_input.send_keys(str(TARGET_WEEK_TO_SET))
                 print(f"Typed '{TARGET_WEEK_TO_SET}'.")
-                time.sleep(0.5)
-                search_input.send_keys(Keys.ENTER)
-                print("Sent Keys.ENTER.")
-                time.sleep(5)
+
+                # ** NEW: Click the dropdown suggestion instead of sending Enter **
+                print(f"Pausing for suggestion dropdown to appear after typing '{TARGET_WEEK_TO_SET}'...")
+                time.sleep(2) # Adjust if dropdown takes longer/shorter to appear
+
+                print(f"Looking for dropdown suggestion '{TARGET_WEEK_TO_SET}' using locator: {WEEK_DROPDOWN_SUGGESTION_LOCATOR}")
+                suggestion_to_click = WebDriverWait(driver, WEEK_INTERACTION_TIMEOUT).until(
+                    EC.element_to_be_clickable(WEEK_DROPDOWN_SUGGESTION_LOCATOR)
+                )
+                print(f"Dropdown suggestion '{TARGET_WEEK_TO_SET}' found and clickable. Clicking it...")
+                suggestion_to_click.click()
+                print(f"Clicked suggestion '{TARGET_WEEK_TO_SET}'.")
+                time.sleep(5) # Allow filter to apply fully after clicking suggestion
+
             except TimeoutException as e_input_timeout:
-                print(f"Timeout during search input interaction ({SEARCH_INPUT_TEXT_FIELD_LOCATOR}): {e_input_timeout}")
-                driver.save_screenshot(f"err_timeout_search_input_wk{TARGET_WEEK_TO_SET}.png")
+                print(f"Timeout during search input/suggestion interaction ({SEARCH_INPUT_TEXT_FIELD_LOCATOR} or {WEEK_DROPDOWN_SUGGESTION_LOCATOR}): {e_input_timeout}")
+                driver.save_screenshot(f"err_timeout_search_input_or_suggestion_wk{TARGET_WEEK_TO_SET}.png")
                 raise
-            except ElementNotInteractableException as e_input_interact:
-                print(f"ElementNotInteractableException with week search input ({SEARCH_INPUT_TEXT_FIELD_LOCATOR}): {e_input_interact}")
-                try:
-                    print("Standard send_keys failed for input. Attempting JavaScript value set + Enter event...")
-                    search_input_js = driver.find_element(*SEARCH_INPUT_TEXT_FIELD_LOCATOR)
-                    driver.execute_script(f"arguments[0].value = '{TARGET_WEEK_TO_SET}';", search_input_js)
-                    driver.execute_script("""
-                        var inputElement = arguments[0];
-                        var event = new KeyboardEvent('keydown', {
-                            key: 'Enter',
-                            code: 'Enter',
-                            keyCode: 13,
-                            which: 13,
-                            bubbles: true,
-                            cancelable: true
-                        });
-                        inputElement.dispatchEvent(event);
-                    """, search_input_js)
-                    print(f"Set value to '{TARGET_WEEK_TO_SET}' and dispatched Enter event using JavaScript.")
-                    time.sleep(5)
-                except Exception as e_js_input:
-                    print(f"JavaScript interaction with search input also failed: {e_js_input}")
-                    driver.save_screenshot(f"err_js_interact_search_input_wk{TARGET_WEEK_TO_SET}.png")
-                    raise
+            except ElementNotInteractableException as e_input_interact: # Should be less likely now with suggestion click
+                print(f"ElementNotInteractableException with week search input/suggestion: {e_input_interact}")
+                driver.save_screenshot(f"err_interactable_search_input_or_suggestion_wk{TARGET_WEEK_TO_SET}.png")
+                raise
             except Exception as e_input_other:
-                print(f"Other error with week search input ({SEARCH_INPUT_TEXT_FIELD_LOCATOR}): {e_input_other}")
-                driver.save_screenshot(f"err_other_search_input_wk{TARGET_WEEK_TO_SET}.png")
+                print(f"Other error with week search input/suggestion: {e_input_other}")
+                driver.save_screenshot(f"err_other_search_input_or_suggestion_wk{TARGET_WEEK_TO_SET}.png")
                 raise
 
             # --- Step 3: Optional Verification ---
