@@ -101,9 +101,6 @@ def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtensio
 
     print(f"Monitoring download directory: {default_dir} for new file (filename: {newFileName}{fileExtension})...")
 
-    # It's better to wait for the file to appear after the download command
-    # This function is called after the export button is clicked.
-    # The initial wait for file to appear should be here.
     time.sleep(15) # Initial wait for download to start and file to appear
 
     while not got_file and retries < max_retries:
@@ -199,10 +196,8 @@ def download_and_rename(wait, driver, weeknum_for_filename, default_dir, downloa
         download_button = wait.until(EC.element_to_be_clickable((By.ID, "download-ToolbarButton")))
         driver.execute_script("arguments[0].click();", download_button)
         print("Clicked main download button.")
-        time.sleep(10) # MODIFIED: Increased wait time from 5 to 10 seconds for dialog to appear
+        time.sleep(10)
 
-        # Explicitly wait for the dialog containing the crosstab button to be visible
-        # This selector targets a common Tableau dialog structure. It might need adjustment.
         print("Waiting for download options dialog to become visible...")
         download_options_dialog_xpath = "//div[(@role='dialog' or contains(@class, 'tableauModalDialog')) and .//button[@data-tb-test-id='DownloadCrosstab-Button']]"
         try:
@@ -210,14 +205,7 @@ def download_and_rename(wait, driver, weeknum_for_filename, default_dir, downloa
             print("Download options dialog is visible.")
         except TimeoutException:
             print("Timeout: Download options dialog (or one containing crosstab button) did not become visible.")
-            # Attempt to get page source for debugging if dialog doesn't appear
-            # try:
-            #     print("Page source when dialog not found:\n", driver.page_source[:2000]) # Print first 2000 chars
-            # except:
-            #     print("Could not get page source.")
-            # Consider trying to close any unexpected popups or returning to skip this download
             return
-
 
         crosstab_button_selector = '[data-tb-test-id="DownloadCrosstab-Button"]'
         print(f"Waiting for crosstab button: {crosstab_button_selector}")
@@ -241,28 +229,21 @@ def download_and_rename(wait, driver, weeknum_for_filename, default_dir, downloa
 
     except TimeoutException as te:
         print(f"A timeout occurred during the download process for week {actual_week_on_page}, year {year_str}: {te}")
-        # try: # Attempt to get page source for debugging
-        #     print("Page source at timeout:\n", driver.page_source[:2000])
-        # except:
-        #     print("Could not get page source at timeout.")
-        # Attempt to close any open dialogs to prevent interference with the next iteration
         try:
-            # Generic close button often used in modals (e.g., an 'X' icon)
             close_buttons = driver.find_elements(By.XPATH, "//button[contains(@aria-label, 'Close') or contains(@class, 'close') or .//span[contains(text(),'×')]]")
             for btn in close_buttons:
                 if btn.is_displayed() and btn.is_enabled():
                     print("Attempting to click a close button to dismiss dialog...")
                     driver.execute_script("arguments[0].click();", btn)
-                    time.sleep(1) # Give it a moment to close
+                    time.sleep(1)
                     break
         except Exception as e_close:
             print(f"Could not find or click a close button for the dialog: {e_close}")
-        return # Skip this download attempt
+        return
 
     except Exception as e:
         print(f"An unexpected error occurred during download preparation for week {actual_week_on_page}, year {year_str}: {e}")
-        return # Skip this download attempt
-
+        return
 
     newFileName = f"PAHO_{year_str}_W{actual_week_on_page}_{today_timestamp}"
     fileExtension = '.csv'
@@ -279,7 +260,6 @@ def click_filter_checkbox_robust(wait, driver, text_label, filter_type="year"):
         checkbox_input = wait.until(EC.element_to_be_clickable((By.XPATH, xpath_input)))
         driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", checkbox_input)
         time.sleep(0.5)
-        # Using JS click for potentially obscured elements
         driver.execute_script("arguments[0].click();", checkbox_input)
         print(f"Clicked {filter_type} filter INPUT for: {text_label} using JS.")
         time.sleep(1.5)
@@ -291,7 +271,6 @@ def click_filter_checkbox_robust(wait, driver, text_label, filter_type="year"):
             checkbox_label = wait.until(EC.element_to_be_clickable((By.XPATH, xpath_label)))
             driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", checkbox_label)
             time.sleep(0.5)
-            # Using JS click for potentially obscured elements
             driver.execute_script("arguments[0].click();", checkbox_label)
             print(f"Clicked {filter_type} filter LABEL for: {text_label} using JS.")
             time.sleep(1.5)
@@ -327,19 +306,18 @@ def iterate_weekly():
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled") # Try to appear more human
-    chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
-    chrome_options.add_experimental_option('useAutomationExtension', False)
+    # REMOVED: chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    # REMOVED: chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
+    # REMOVED: chrome_options.add_experimental_option('useAutomationExtension', False)
 
 
     print(f"Initializing Chrome with version_main={chrome_version}")
     driver = uc.Chrome(headless=True, use_subprocess=True, options=chrome_options, version_main=chrome_version)
-    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})") # Further hide automation
-
+    # REMOVED: driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
     driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
     print("Page loaded.")
-    wait = WebDriverWait(driver, 45) # Increased overall wait time slightly
+    wait = WebDriverWait(driver, 45)
 
     iframe_src = "https://ais.paho.org/ha_viz/dengue/nac/dengue_pais_anio_tben.asp"
     iframe_locator = (By.XPATH, f"//div[contains(@class, 'vizTab')]//iframe[@src='{iframe_src}']")
@@ -347,7 +325,7 @@ def iterate_weekly():
     iframe1 = wait.until(EC.presence_of_element_located(iframe_locator))
     driver.switch_to.frame(iframe1)
     print("Switched to the first iframe.")
-    time.sleep(2) # Small pause after switching
+    time.sleep(2)
 
     print("Waiting for the nested (Tableau) iframe...")
     tableau_iframe_selectors = [
@@ -357,19 +335,31 @@ def iterate_weekly():
         (By.TAG_NAME, "iframe")
     ]
     iframe2 = None
+    # Store the current window handle in case we need to switch back to default content from an iframe for debugging
+    # main_window_handle = driver.current_window_handle # Not strictly needed if only dealing with frames
+
     for i, (by, selector_val) in enumerate(tableau_iframe_selectors):
         try:
             print(f"Attempting to find Tableau iframe with: {by}='{selector_val}'")
-            # Wait for presence first, then switch
             iframe2_element = wait.until(EC.presence_of_element_located((by, selector_val)))
-            driver.switch_to.frame(iframe2_element) # Switch to the found iframe element
+            driver.switch_to.frame(iframe2_element)
             print("Found and switched to nested (Tableau) iframe.")
-            iframe2 = iframe2_element # Assign to iframe2 to confirm found
+            iframe2 = iframe2_element
             break
         except Exception as e_iframe:
             print(f"Attempt {i+1} to find Tableau iframe with {by}='{selector_val}' failed: {e_iframe}")
-            driver.switch_to.parent_frame() # Switch back if current attempt failed, to retry from first iframe context
-            if i == len(tableau_iframe_selectors) -1:
+            # Ensure we are in the context of the first iframe before trying the next selector for the second iframe
+            # This assumes the structure is Page -> iframe1 -> iframe2
+            # If a switch to iframe2_element fails, we might still be in iframe1 or default_content.
+            # To be safe, explicitly switch back to iframe1 before next attempt to find iframe2 within it.
+            # However, if the wait.until fails, the context doesn't change.
+            # If driver.switch_to.frame(iframe2_element) fails, then an error occurs.
+            # The crucial part is that if a find for iframe2 fails, we are still in iframe1's context.
+            if i < len(tableau_iframe_selectors) - 1:
+                print("Retrying to find Tableau iframe from the context of the first iframe.")
+                # No need to switch back explicitly if wait.until for iframe2_element failed,
+                # as the context would not have changed to iframe2_element.
+            else: # All attempts failed
                 print("CRITICAL: Could not find or switch to the Tableau iframe. Exiting.")
                 driver.quit()
                 return
@@ -380,7 +370,6 @@ def iterate_weekly():
 
     time.sleep(5)
 
-    # --- Select All Countries/Regions (Once) ---
     region_filter_tab_id = 'tabZoneId9'
     print(f"Waiting for region filter control (ID: {region_filter_tab_id})...")
     wait.until(EC.visibility_of_element_located((By.ID, region_filter_tab_id)))
@@ -394,12 +383,11 @@ def iterate_weekly():
         print("WARNING: Failed to select (All) regions. Proceeding, but data might be incomplete.")
 
     try:
-        # Try clicking the dropdown button again to close it
         open_dropdown_button = driver.find_element(By.CSS_SELECTOR, f'#{region_filter_tab_id} span.tabComboBoxButton.tabDropDownButtonOpen')
-        if open_dropdown_button.is_displayed(): # Check if it's still marked as open
+        if open_dropdown_button.is_displayed():
              open_dropdown_button.click()
              print("Closed region dropdown by clicking the open button again.")
-        else: # Fallback to tab-glass if button state not 'open'
+        else:
             raise Exception("Dropdown button not in 'open' state.")
     except:
         try:
@@ -416,7 +404,6 @@ def iterate_weekly():
     time.sleep(5)
 
 
-    # --- Loop through each year to process ---
     for year_to_download in years_to_process:
         print(f"\nProcessing Year: {year_to_download}")
 
@@ -438,7 +425,7 @@ def iterate_weekly():
 
         if not click_filter_checkbox_robust(wait, driver, year_to_download):
             print(f"CRITICAL: Failed to select target year {year_to_download}. Skipping this year.")
-            try: # Attempt to close dropdown
+            try:
                 open_year_dropdown_button = driver.find_element(By.CSS_SELECTOR, f'#{year_filter_tab_id} span.tabComboBoxButton.tabDropDownButtonOpen')
                 if open_year_dropdown_button.is_displayed(): open_year_dropdown_button.click()
             except:
@@ -447,7 +434,7 @@ def iterate_weekly():
             time.sleep(1)
             continue
 
-        try: # Close year dropdown
+        try:
             open_year_dropdown_button = driver.find_element(By.CSS_SELECTOR, f'#{year_filter_tab_id} span.tabComboBoxButton.tabDropDownButtonOpen')
             if open_year_dropdown_button.is_displayed():
                 open_year_dropdown_button.click()
@@ -475,12 +462,10 @@ def iterate_weekly():
             year_int = int(year_to_download)
             last_day = date(year_int, 12, 31)
             iso_year, iso_week, _ = last_day.isocalendar()
-            # If Dec 31 is in week 1 of the *next* year, then the current year has 52 weeks.
-            # Or if Dec 31 is in week 53 of the *current* year, it has 53 weeks.
-            if iso_year == year_int: # Week belongs to the current year
+            if iso_year == year_int:
                  initial_weeknum = iso_week
-            else: # Week belongs to next year (so current year had 52) or previous year (error)
-                 initial_weeknum = date(year_int, 12, 24).isocalendar()[1] # Check a week before Dec 31
+            else:
+                 initial_weeknum = date(year_int, 12, 24).isocalendar()[1]
 
             print(f"Calculated fallback initial week for {year_to_download}: {initial_weeknum}")
 
@@ -497,10 +482,10 @@ def iterate_weekly():
             print(f"Preparing to decrement week from {current_loop_week} for year {year_to_download}...")
             try:
                 decrement_button = wait.until(EC.element_to_be_clickable((By.XPATH, decrement_button_xpath)))
-                driver.execute_script("arguments[0].click();", decrement_button) # JS click for robustness
+                driver.execute_script("arguments[0].click();", decrement_button)
                 print(f"Clicked decrement week button. Current week was {current_loop_week}.")
                 current_loop_week -= 1
-                time.sleep(7) # Increased delay for dashboard to update after week change
+                time.sleep(7)
             except Exception as e_dec:
                 print(f"Error clicking decrement button for year {year_to_download} (week {current_loop_week}) or week already at 1: {e_dec}")
                 break
