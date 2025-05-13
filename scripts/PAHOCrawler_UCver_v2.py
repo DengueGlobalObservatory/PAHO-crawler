@@ -2,6 +2,7 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException # Import TimeoutException
 import time
 import os
 from datetime import datetime, date # Added date for isocalendar
@@ -41,15 +42,17 @@ def get_chrome_version():
                             ['mdfind', 'kMDItemCFBundleIdentifier == "com.google.Chrome"'],
                             text=True
                         ).strip()
-                        if chrome_app_path_output:
-                            chrome_executable_path = os.path.join(chrome_app_path_output, "Contents/MacOS/Google Chrome")
+                        if chrome_app_path_output: # Check if mdfind returned a path
+                            # mdfind can return multiple paths, take the first one
+                            first_path = chrome_app_path_output.split('\n')[0]
+                            chrome_executable_path = os.path.join(first_path, "Contents/MacOS/Google Chrome")
                             if os.path.exists(chrome_executable_path):
                                 output = subprocess.check_output([chrome_executable_path, '--version'], text=True)
                                 version_match = re.search(r'Google Chrome (\d+)\.', output)
                             else:
-                                raise FileNotFoundError("Chrome found by mdfind, but executable missing.")
+                                raise FileNotFoundError(f"Chrome found by mdfind at {first_path}, but executable missing at {chrome_executable_path}.")
                         else:
-                             raise FileNotFoundError("Chrome or Chromium not found on macOS.")
+                             raise FileNotFoundError("Chrome or Chromium not found on macOS using mdfind.")
                     except (subprocess.CalledProcessError, FileNotFoundError) as e_mdfind:
                         print(f"mdfind for Chrome failed: {e_mdfind}")
                         raise FileNotFoundError("Chrome or Chromium not found on macOS.")
@@ -87,7 +90,7 @@ try:
 except RuntimeError as e:
     print(f"Error in get_chrome_version: {e}")
     print("Attempting to proceed with a default Chrome version (e.g. 124 for uc.Chrome).")
-    chrome_version = 124
+    chrome_version = 124 # Fallback version
 
 
 def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtension):
@@ -96,48 +99,41 @@ def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtensio
     retries = 0
     currentFile = None
 
-    print(f"Monitoring download directory: {default_dir} for new file...")
-    initial_files = set(os.listdir(default_dir)) # Files before download starts for this specific call
+    print(f"Monitoring download directory: {default_dir} for new file (filename: {newFileName}{fileExtension})...")
 
-    # Wait a bit for the download to initiate and appear in the directory
-    time.sleep(15) # Increased initial wait for file to appear
+    # It's better to wait for the file to appear after the download command
+    # This function is called after the export button is clicked.
+    # The initial wait for file to appear should be here.
+    time.sleep(15) # Initial wait for download to start and file to appear
 
     while not got_file and retries < max_retries:
         try:
-            # List all files in the default_dir
             all_current_files_in_dir = [os.path.join(default_dir, f) for f in os.listdir(default_dir)
                                         if os.path.isfile(os.path.join(default_dir, f))]
 
             if not all_current_files_in_dir:
-                if retries % 3 == 0: # Print less frequently
+                if retries % 3 == 0:
                     print(f"No files found in download directory: {default_dir}. Waiting... (Attempt {retries+1}/{max_retries})")
                 time.sleep(10)
                 retries += 1
                 continue
 
-            # Find the most recently modified file that is NOT a .crdownload file
-            # and ideally is newer than when we started this function call (if possible to track)
-            # For simplicity, we'll stick to most recent non-.crdownload file.
-
-            # Filter out partial downloads and sort by modification time
             potential_files = [f for f in all_current_files_in_dir if not f.endswith('.crdownload') and not f.endswith('.tmp')]
 
             if not potential_files:
                 if retries % 3 == 0:
-                    print(f"No completed files found yet. Found: {[os.path.basename(f) for f in all_current_files_in_dir]}. Waiting... (Attempt {retries+1}/{max_retries})")
-                # Check for .crdownload files to see if download is in progress
-                crdownload_files = [f for f in all_current_files_in_dir if f.endswith('.crdownload')]
-                if crdownload_files:
-                     print(f"Download in progress: {os.path.basename(crdownload_files[0])}. Waiting...")
+                    crdownload_files = [f for f in all_current_files_in_dir if f.endswith('.crdownload')]
+                    if crdownload_files:
+                        print(f"Download in progress: {os.path.basename(crdownload_files[0])}. Waiting... (Attempt {retries+1}/{max_retries})")
+                    else:
+                        print(f"No completed files found yet. Found: {[os.path.basename(f) for f in all_current_files_in_dir]}. Waiting... (Attempt {retries+1}/{max_retries})")
                 time.sleep(10)
                 retries += 1
                 continue
 
             currentFile = max(potential_files, key=os.path.getctime)
-
-            # Ensure the file exists and is not empty
-            # Add a small delay to ensure file writing is complete
             time.sleep(2) # Wait for filesystem to catch up
+
             if os.path.exists(currentFile) and os.path.getsize(currentFile) > 0:
                 print(f"Downloaded file identified: {os.path.basename(currentFile)} (Size: {os.path.getsize(currentFile)} bytes)")
                 got_file = True
@@ -146,7 +142,7 @@ def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtensio
                     print(f"Identified file {os.path.basename(currentFile)} does not exist. Retrying...")
                 elif os.path.getsize(currentFile) == 0:
                      print(f"Identified file {os.path.basename(currentFile)} is empty. Assuming download is not complete. Retrying...")
-                currentFile = None # Reset currentFile if it's not valid
+                currentFile = None
                 time.sleep(10)
                 retries += 1
 
@@ -156,7 +152,7 @@ def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtensio
             retries += 1
 
     if not got_file or currentFile is None:
-        print(f"Failed to get the downloaded file from {default_dir} after {(max_retries * 10)} seconds.")
+        print(f"Failed to get the downloaded file '{newFileName}{fileExtension}' from {default_dir} after {(max_retries * 10)} seconds.")
         placeholder_filename = newFileName + "_DOWNLOAD_FAILED" + fileExtension
         placeholder_filepath = os.path.join(downloadPath, placeholder_filename)
         try:
@@ -167,16 +163,13 @@ def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtensio
             print(f"Failed to create placeholder error file: {e_placeholder}")
         return
 
-
     fileDestination = os.path.join(downloadPath, newFileName + fileExtension)
-
     try:
         print(f"Attempting to move {os.path.basename(currentFile)} to {fileDestination}")
-        shutil.move(currentFile, fileDestination) # shutil.move is generally more robust
+        shutil.move(currentFile, fileDestination)
         print(f"Moved file to {fileDestination}")
     except Exception as e:
         print(f"Error moving file {currentFile} to {fileDestination} using shutil.move: {e}")
-        # Fallback placeholder if move fails critically
         placeholder_filename = newFileName + "_MOVE_FAILED" + fileExtension
         placeholder_filepath = os.path.join(downloadPath, placeholder_filename)
         try:
@@ -191,10 +184,9 @@ def download_and_rename(wait, driver, weeknum_for_filename, default_dir, downloa
     """Download and rename the file for the given week number."""
     print(f"Attempting to download data for year {year_str}, expected week (for filename): {weeknum_for_filename}")
 
-    actual_week_on_page = weeknum_for_filename # Default to expected if reading fails
+    actual_week_on_page = weeknum_for_filename
     try:
-        # Wait for the week number display to update and verify it
-        time.sleep(3) # UI settle time
+        time.sleep(3)
         weeknum_div = wait.until(
             EC.presence_of_element_located((By.CLASS_NAME, "sliderText"))
         )
@@ -202,48 +194,76 @@ def download_and_rename(wait, driver, weeknum_for_filename, default_dir, downloa
         print(f"Actual week number on page: {actual_week_on_page}. Using this for filename.")
     except Exception as e:
         print(f"Could not read week number from page: {e}. Using expected week for filename: {weeknum_for_filename}")
-        # actual_week_on_page remains weeknum_for_filename
 
-    download_button = wait.until(EC.element_to_be_clickable((By.ID, "download-ToolbarButton")))
-    driver.execute_script("arguments[0].click();", download_button) # JS click
-    print("Clicked main download button.")
-    time.sleep(5)
-
-    crosstab_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-tb-test-id="DownloadCrosstab-Button"]')))
-    driver.execute_script("arguments[0].click();", crosstab_button) # JS click
-    print("Clicked crosstab button.")
-    time.sleep(5)
-
-    csv_radio_selector = "input[type='radio'][value='csv']"
     try:
+        download_button = wait.until(EC.element_to_be_clickable((By.ID, "download-ToolbarButton")))
+        driver.execute_script("arguments[0].click();", download_button)
+        print("Clicked main download button.")
+        time.sleep(10) # MODIFIED: Increased wait time from 5 to 10 seconds for dialog to appear
+
+        # Explicitly wait for the dialog containing the crosstab button to be visible
+        # This selector targets a common Tableau dialog structure. It might need adjustment.
+        print("Waiting for download options dialog to become visible...")
+        download_options_dialog_xpath = "//div[(@role='dialog' or contains(@class, 'tableauModalDialog')) and .//button[@data-tb-test-id='DownloadCrosstab-Button']]"
+        try:
+            wait.until(EC.visibility_of_element_located((By.XPATH, download_options_dialog_xpath)))
+            print("Download options dialog is visible.")
+        except TimeoutException:
+            print("Timeout: Download options dialog (or one containing crosstab button) did not become visible.")
+            # Attempt to get page source for debugging if dialog doesn't appear
+            # try:
+            #     print("Page source when dialog not found:\n", driver.page_source[:2000]) # Print first 2000 chars
+            # except:
+            #     print("Could not get page source.")
+            # Consider trying to close any unexpected popups or returning to skip this download
+            return
+
+
+        crosstab_button_selector = '[data-tb-test-id="DownloadCrosstab-Button"]'
+        print(f"Waiting for crosstab button: {crosstab_button_selector}")
+        crosstab_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, crosstab_button_selector)))
+        driver.execute_script("arguments[0].click();", crosstab_button)
+        print("Clicked crosstab button.")
+        time.sleep(5)
+
+        csv_radio_selector = "input[type='radio'][value='csv']"
+        print(f"Waiting for CSV radio button: {csv_radio_selector}")
         csv_div = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, csv_radio_selector)))
         driver.execute_script("arguments[0].scrollIntoView(true); arguments[0].click();", csv_div)
         print("Selected CSV option.")
-    except Exception as e:
-        print(f"Error selecting CSV option: {e}. Download might fail or be in wrong format.")
-    time.sleep(3)
+        time.sleep(3)
 
-    export_button_selector = '[data-tb-test-id="export-crosstab-export-Button"]'
-    try:
+        export_button_selector = '[data-tb-test-id="export-crosstab-export-Button"]'
+        print(f"Waiting for export button: {export_button_selector}")
         export_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, export_button_selector)))
-        driver.execute_script("arguments[0].click();", export_button) # JS click
+        driver.execute_script("arguments[0].click();", export_button)
         print(f"Downloading CSV file for year {year_str}, week {actual_week_on_page}...")
-    except Exception as e:
-        print(f"Error clicking export button: {e}. Download will likely fail for week {actual_week_on_page}.")
-        try:
-            close_button_selectors = ['[aria-label="Close"]', '[data-tb-test-id="vizportal-dialog-close-button"]', 'button.close']
-            for sel in close_button_selectors:
-                try:
-                    close_btn = driver.find_element(By.CSS_SELECTOR, sel)
-                    if close_btn.is_displayed():
-                        close_btn.click()
-                        print("Attempted to close download dialog after export fail.")
-                        break
-                except: pass
-        except Exception as close_e: print(f"Could not close download dialog: {close_e}")
-        return
 
-    # move_to_download_folder handles the waiting for the file
+    except TimeoutException as te:
+        print(f"A timeout occurred during the download process for week {actual_week_on_page}, year {year_str}: {te}")
+        # try: # Attempt to get page source for debugging
+        #     print("Page source at timeout:\n", driver.page_source[:2000])
+        # except:
+        #     print("Could not get page source at timeout.")
+        # Attempt to close any open dialogs to prevent interference with the next iteration
+        try:
+            # Generic close button often used in modals (e.g., an 'X' icon)
+            close_buttons = driver.find_elements(By.XPATH, "//button[contains(@aria-label, 'Close') or contains(@class, 'close') or .//span[contains(text(),'×')]]")
+            for btn in close_buttons:
+                if btn.is_displayed() and btn.is_enabled():
+                    print("Attempting to click a close button to dismiss dialog...")
+                    driver.execute_script("arguments[0].click();", btn)
+                    time.sleep(1) # Give it a moment to close
+                    break
+        except Exception as e_close:
+            print(f"Could not find or click a close button for the dialog: {e_close}")
+        return # Skip this download attempt
+
+    except Exception as e:
+        print(f"An unexpected error occurred during download preparation for week {actual_week_on_page}, year {year_str}: {e}")
+        return # Skip this download attempt
+
+
     newFileName = f"PAHO_{year_str}_W{actual_week_on_page}_{today_timestamp}"
     fileExtension = '.csv'
     move_to_download_folder(default_dir, downloadPath, newFileName, fileExtension)
@@ -251,30 +271,30 @@ def download_and_rename(wait, driver, weeknum_for_filename, default_dir, downloa
 
 def click_filter_checkbox_robust(wait, driver, text_label, filter_type="year"):
     """More robustly clicks a filter checkbox in Tableau, trying input then label."""
-    # XPath for the input checkbox, often preceding an <a> tag with the text
     xpath_input = f'//div[contains(@class, "facetOverflow")]//a[text()="{text_label}"]/preceding-sibling::input[@type="checkbox"]'
-    # XPath for the <a> tag label itself
     xpath_label = f'//div[contains(@class, "facetOverflow")]//a[text()="{text_label}"]'
 
     try:
         print(f"Attempting to click {filter_type} filter INPUT for: {text_label}")
         checkbox_input = wait.until(EC.element_to_be_clickable((By.XPATH, xpath_input)))
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", checkbox_input) # Scroll to center
-        time.sleep(0.5) # Wait for scroll
-        checkbox_input.click() # Try direct click first
-        print(f"Clicked {filter_type} filter INPUT for: {text_label}")
-        time.sleep(1.5) # Allow UI to update
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", checkbox_input)
+        time.sleep(0.5)
+        # Using JS click for potentially obscured elements
+        driver.execute_script("arguments[0].click();", checkbox_input)
+        print(f"Clicked {filter_type} filter INPUT for: {text_label} using JS.")
+        time.sleep(1.5)
         return True
     except Exception as e_input:
         print(f"Could not click {filter_type} filter INPUT for '{text_label}': {e_input}. Trying LABEL.")
         try:
             print(f"Attempting to click {filter_type} filter LABEL for: {text_label}")
             checkbox_label = wait.until(EC.element_to_be_clickable((By.XPATH, xpath_label)))
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", checkbox_label) # Scroll to center
-            time.sleep(0.5) # Wait for scroll
-            checkbox_label.click() # Click label as fallback
-            print(f"Clicked {filter_type} filter LABEL for: {text_label}")
-            time.sleep(1.5) # Allow UI to update
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", checkbox_label)
+            time.sleep(0.5)
+            # Using JS click for potentially obscured elements
+            driver.execute_script("arguments[0].click();", checkbox_label)
+            print(f"Clicked {filter_type} filter LABEL for: {text_label} using JS.")
+            time.sleep(1.5)
             return True
         except Exception as e_label:
             print(f"Could not click {filter_type} filter LABEL for '{text_label}': {e_label}")
@@ -306,14 +326,20 @@ def iterate_weekly():
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--window-size=1920,1080") # Ensure all elements are visible
+    chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled") # Try to appear more human
+    chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+
 
     print(f"Initializing Chrome with version_main={chrome_version}")
-    driver = uc.Chrome(headless=True, use_subprocess=True, options=chrome_options, version_main=chrome_version) # use_subprocess=True can be more stable
+    driver = uc.Chrome(headless=True, use_subprocess=True, options=chrome_options, version_main=chrome_version)
+    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})") # Further hide automation
+
 
     driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
     print("Page loaded.")
-    wait = WebDriverWait(driver, 40) # Increased wait time
+    wait = WebDriverWait(driver, 45) # Increased overall wait time slightly
 
     iframe_src = "https://ais.paho.org/ha_viz/dengue/nac/dengue_pais_anio_tben.asp"
     iframe_locator = (By.XPATH, f"//div[contains(@class, 'vizTab')]//iframe[@src='{iframe_src}']")
@@ -321,35 +347,38 @@ def iterate_weekly():
     iframe1 = wait.until(EC.presence_of_element_located(iframe_locator))
     driver.switch_to.frame(iframe1)
     print("Switched to the first iframe.")
+    time.sleep(2) # Small pause after switching
 
     print("Waiting for the nested (Tableau) iframe...")
-    # Common Tableau iframe selectors, try them in order
     tableau_iframe_selectors = [
-        (By.XPATH, "//iframe[@title='viz']"), # Preferred if title is stable
-        (By.ID, "viz_iframe"), # Common ID
-        (By.XPATH, "//iframe[contains(@id,'viz_iframe')]"), # If ID has dynamic parts
-        (By.TAG_NAME, "iframe") # Most generic, last resort if only one iframe in current context
+        (By.XPATH, "//iframe[@title='viz']"),
+        (By.ID, "viz_iframe"),
+        (By.XPATH, "//iframe[contains(@id,'viz_iframe')]"),
+        (By.TAG_NAME, "iframe")
     ]
     iframe2 = None
     for i, (by, selector_val) in enumerate(tableau_iframe_selectors):
         try:
             print(f"Attempting to find Tableau iframe with: {by}='{selector_val}'")
-            iframe2 = wait.until(EC.presence_of_element_located((by, selector_val)))
+            # Wait for presence first, then switch
+            iframe2_element = wait.until(EC.presence_of_element_located((by, selector_val)))
+            driver.switch_to.frame(iframe2_element) # Switch to the found iframe element
             print("Found and switched to nested (Tableau) iframe.")
+            iframe2 = iframe2_element # Assign to iframe2 to confirm found
             break
         except Exception as e_iframe:
-            print(f"Attempt {i+1} failed for {by}='{selector_val}': {e_iframe}")
-            if i == len(tableau_iframe_selectors) -1: # If all attempts failed
+            print(f"Attempt {i+1} to find Tableau iframe with {by}='{selector_val}' failed: {e_iframe}")
+            driver.switch_to.parent_frame() # Switch back if current attempt failed, to retry from first iframe context
+            if i == len(tableau_iframe_selectors) -1:
                 print("CRITICAL: Could not find or switch to the Tableau iframe. Exiting.")
                 driver.quit()
                 return
-    if iframe2 is None: # Should be caught above, but as a safeguard
+    if iframe2 is None:
         print("CRITICAL: Tableau iframe not found after all attempts. Exiting.")
         driver.quit()
         return
 
-    driver.switch_to.frame(iframe2) # Switch to the found iframe
-    time.sleep(5) # Allow content within the Tableau iframe to load
+    time.sleep(5)
 
     # --- Select All Countries/Regions (Once) ---
     region_filter_tab_id = 'tabZoneId9'
@@ -364,31 +393,37 @@ def iterate_weekly():
     else:
         print("WARNING: Failed to select (All) regions. Proceeding, but data might be incomplete.")
 
-    # Close the region dropdown menu
-    # Using a more generic approach to close dropdowns if 'tab-glass' is not always there or interactable
     try:
-        driver.find_element(By.CLASS_NAME, "tabDropDownButtonOpen").click() # Try clicking the open button again to close
-        print("Closed region dropdown by clicking the open button again.")
+        # Try clicking the dropdown button again to close it
+        open_dropdown_button = driver.find_element(By.CSS_SELECTOR, f'#{region_filter_tab_id} span.tabComboBoxButton.tabDropDownButtonOpen')
+        if open_dropdown_button.is_displayed(): # Check if it's still marked as open
+             open_dropdown_button.click()
+             print("Closed region dropdown by clicking the open button again.")
+        else: # Fallback to tab-glass if button state not 'open'
+            raise Exception("Dropdown button not in 'open' state.")
     except:
         try:
             wait.until(EC.element_to_be_clickable((By.CLASS_NAME, "tab-glass"))).click()
             print("Closed region selection dropdown via tab-glass.")
         except Exception as e_close_region:
-            print(f"Could not close region dropdown cleanly: {e_close_region}. Attempting to continue.")
-            driver.execute_script("arguments[0].blur();", driver.switch_to.active_element) # Try to remove focus
-    time.sleep(5) # Wait for region filter to apply
+            print(f"Could not close region dropdown cleanly: {e_close_region}. Attempting to continue by blurring active element.")
+            try:
+                active_element = driver.switch_to.active_element
+                if active_element:
+                    driver.execute_script("arguments[0].blur();", active_element)
+            except Exception as e_blur:
+                print(f"Failed to blur active element: {e_blur}")
+    time.sleep(5)
 
 
     # --- Loop through each year to process ---
     for year_to_download in years_to_process:
         print(f"\nProcessing Year: {year_to_download}")
 
-        # Create a specific download path for this year's data
         current_year_download_path = os.path.join(final_download_path_base, year_to_download)
         os.makedirs(current_year_download_path, exist_ok=True)
         print(f"Download path for {year_to_download}: {current_year_download_path}")
 
-        # --- Year Selection Logic for the current_year_being_processed ---
         year_filter_tab_id = 'tabZoneId13'
         print(f"Waiting for year filter control (ID: {year_filter_tab_id})...")
         wait.until(EC.visibility_of_element_located((By.ID, year_filter_tab_id)))
@@ -398,35 +433,38 @@ def iterate_weekly():
         time.sleep(2)
 
         print(f"Clearing previous year selections and selecting only {year_to_download}...")
-        click_filter_checkbox_robust(wait, driver, "(All)") # Click 1 on (All)
-        click_filter_checkbox_robust(wait, driver, "(All)") # Click 2 on (All) - intended to deselect all
+        click_filter_checkbox_robust(wait, driver, "(All)")
+        click_filter_checkbox_robust(wait, driver, "(All)")
 
-        # Select the target year for this iteration
         if not click_filter_checkbox_robust(wait, driver, year_to_download):
             print(f"CRITICAL: Failed to select target year {year_to_download}. Skipping this year.")
-            # Close dropdown before skipping
-            try:
-                driver.find_element(By.CLASS_NAME, "tabDropDownButtonOpen").click()
+            try: # Attempt to close dropdown
+                open_year_dropdown_button = driver.find_element(By.CSS_SELECTOR, f'#{year_filter_tab_id} span.tabComboBoxButton.tabDropDownButtonOpen')
+                if open_year_dropdown_button.is_displayed(): open_year_dropdown_button.click()
             except:
                 try: wait.until(EC.element_to_be_clickable((By.CLASS_NAME, "tab-glass"))).click()
                 except: pass
             time.sleep(1)
-            continue # Move to the next year
+            continue
 
-        # Close the year dropdown menu
-        try:
-            driver.find_element(By.CLASS_NAME, "tabDropDownButtonOpen").click() # Try clicking the open button again
-            print("Closed year dropdown by clicking the open button again.")
+        try: # Close year dropdown
+            open_year_dropdown_button = driver.find_element(By.CSS_SELECTOR, f'#{year_filter_tab_id} span.tabComboBoxButton.tabDropDownButtonOpen')
+            if open_year_dropdown_button.is_displayed():
+                open_year_dropdown_button.click()
+                print("Closed year dropdown by clicking the open button again.")
+            else: raise Exception("Year dropdown button not in 'open' state.")
         except:
             try:
                 wait.until(EC.element_to_be_clickable((By.CLASS_NAME, "tab-glass"))).click()
                 print("Closed year selection dropdown via tab-glass.")
             except Exception as e_close_year:
-                print(f"Could not close year dropdown cleanly: {e_close_year}. Attempting to continue.")
-                driver.execute_script("arguments[0].blur();", driver.switch_to.active_element) # Try to remove focus
-        time.sleep(5) # Wait for year filter to apply and data to update
+                print(f"Could not close year dropdown cleanly: {e_close_year}. Attempting to blur.")
+                try:
+                    active_element = driver.switch_to.active_element
+                    if active_element: driver.execute_script("arguments[0].blur();", active_element)
+                except: pass
+        time.sleep(5)
 
-        # --- Download data for weeks of the current year ---
         initial_weeknum = 0
         try:
             weeknum_div_initial = wait.until(EC.presence_of_element_located((By.CLASS_NAME, "sliderText")))
@@ -434,22 +472,24 @@ def iterate_weekly():
             print(f"Initial week on page for year {year_to_download} (slider): {initial_weeknum}")
         except Exception as e:
             print(f"Could not read initial week number for {year_to_download}: {e}. Calculating fallback.")
-            # Calculate max week for the year (52 or 53)
             year_int = int(year_to_download)
-            # The last Thursday of the year determines if it's week 53.
             last_day = date(year_int, 12, 31)
-            initial_weeknum = last_day.isocalendar()[1]
-            if initial_weeknum == 1 and last_day.month == 12 : # If Dec 31 is in week 1 of next year
-                initial_weeknum = date(year_int, 12, 24).isocalendar()[1] # Check a week before
+            iso_year, iso_week, _ = last_day.isocalendar()
+            # If Dec 31 is in week 1 of the *next* year, then the current year has 52 weeks.
+            # Or if Dec 31 is in week 53 of the *current* year, it has 53 weeks.
+            if iso_year == year_int: # Week belongs to the current year
+                 initial_weeknum = iso_week
+            else: # Week belongs to next year (so current year had 52) or previous year (error)
+                 initial_weeknum = date(year_int, 12, 24).isocalendar()[1] # Check a week before Dec 31
+
             print(f"Calculated fallback initial week for {year_to_download}: {initial_weeknum}")
 
 
         current_loop_week = initial_weeknum
         if current_loop_week == 0:
             print(f"ERROR: Initial week number is 0 for year {year_to_download}. Cannot proceed for this year.")
-            continue # Skip to next year if week calculation failed badly
+            continue
 
-        # First download for the current/latest week of the selected year
         download_and_rename(wait, driver, current_loop_week, default_download_dir_for_browser, current_year_download_path, year_to_download, today_timestamp)
 
         decrement_button_xpath = "//*[contains(@class, 'tableauArrow') and contains(@class, 'Dec')]"
@@ -457,12 +497,12 @@ def iterate_weekly():
             print(f"Preparing to decrement week from {current_loop_week} for year {year_to_download}...")
             try:
                 decrement_button = wait.until(EC.element_to_be_clickable((By.XPATH, decrement_button_xpath)))
-                decrement_button.click() # Direct click
+                driver.execute_script("arguments[0].click();", decrement_button) # JS click for robustness
                 print(f"Clicked decrement week button. Current week was {current_loop_week}.")
                 current_loop_week -= 1
-                time.sleep(6) # Increased delay for dashboard to update after week change
+                time.sleep(7) # Increased delay for dashboard to update after week change
             except Exception as e_dec:
-                print(f"Error clicking decrement button for year {year_to_download} (week {current_loop_week-1}) or week already at 1: {e_dec}")
+                print(f"Error clicking decrement button for year {year_to_download} (week {current_loop_week}) or week already at 1: {e_dec}")
                 break
 
             download_and_rename(wait, driver, current_loop_week, default_download_dir_for_browser, current_year_download_path, year_to_download, today_timestamp)
@@ -480,7 +520,7 @@ if __name__ == "__main__":
     try:
         iterate_weekly()
     except Exception as e:
-        print(f"An unhandled error occurred in iterate_weekly: {e}")
+        print(f"An unhandled error occurred in the main script: {e}")
         import traceback
         traceback.print_exc()
 
