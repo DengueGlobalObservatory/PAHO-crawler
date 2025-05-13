@@ -19,7 +19,7 @@ def get_chrome_version():
             # Command to retrieve Chrome version from Windows registry
             output = subprocess.check_output(
                 r'reg query "HKEY_CURRENT_USER\Software\Google\Chrome\BLBeacon" /v version',
-                shell=True, 
+                shell=True,
                 text=True
             )
             version = re.search(r'\s+version\s+REG_SZ\s+(\d+)\.', output)
@@ -53,9 +53,9 @@ chrome_version = get_chrome_version()
 #https://github.com/ultrafunkamsterdam/undetected-chromedriver/issues/1904
 
 def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtension):
-    got_file = False   
+    got_file = False
     while not got_file:
-        try: 
+        try:
             # Use glob to get the current file name
             currentFile = max([default_dir + "/" + f for f in os.listdir(default_dir)], key=os.path.getctime)
 
@@ -64,7 +64,7 @@ def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtensio
                 got_file = True
             else:
                 raise FileNotFoundError("File not found. Retrying...")
-            
+
         except Exception as e:
             print("File has not finished downloading")
             time.sleep(10)
@@ -75,13 +75,13 @@ def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtensio
     # Move the file
     os.rename(currentFile, fileDestination)
     print(f"Moved file to {fileDestination}")
-    
 
- 
+
+
 
 def download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, driver, year, today):
     """Download and rename the file for the given week number."""
-    
+
     # Wait for the week number to update
     weeknum_div = wait.until(
         EC.presence_of_element_located((By.CLASS_NAME, "sliderText"))
@@ -95,7 +95,7 @@ def download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, d
         EC.element_to_be_clickable((By.ID, "download-ToolbarButton"))
     )
     download_button.click()
-    
+
     time.sleep(5)
 
     # Find and click the crosstab button (in a pop up window)
@@ -103,7 +103,7 @@ def download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, d
         EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-tb-test-id="DownloadCrosstab-Button"]'))
     )
     crosstab_button.click()
-    
+
     time.sleep(5)
 
     # Find and select the CSV option
@@ -130,20 +130,20 @@ def download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, d
     move_to_download_folder(default_dir, downloadPath, newFileName, fileExtension)
 
 
-def iterate_weekly(): 
-    
+def iterate_weekly():
+
     year = "(All)" # choose year to download
     today = datetime.now().strftime('%Y%m%d%H%m') # current date and time
 
     # set directory
     github_workspace = os.path.join(os.getenv('GITHUB_WORKSPACE'), 'data')
     default_dir = os.getcwd()
-    #github_workspace = 'C:/Users/user/Dropbox/WORK/OpenDengue/PAHO-crawler'
-    #default_dir = 'C:/Users/user/Downloads'  
+    #github_workspace = 'C:/Users/AhyoungLim/Dropbox/WORK/OpenDengue/PAHO-crawler'
+    #default_dir = 'C:/Users/AhyoungLim/Downloads'
 
     today_directory_name = f"OD_DL_{datetime.now().strftime('%Y%m%d')}"
     downloadPath = os.path.join(github_workspace, today_directory_name)
-    os.makedirs(downloadPath, exist_ok=True) # create a new directory 
+    os.makedirs(downloadPath, exist_ok=True) # create a new directory
 
     # set chrome download directory
     chrome_options = uc.ChromeOptions()
@@ -151,12 +151,12 @@ def iterate_weekly():
     chrome_options.add_experimental_option("prefs", prefs)
 
     # using undetected-chromedriver
-    driver = uc.Chrome(headless=True, use_subprocess=False, options = chrome_options, version_main=chrome_version)     
+    driver = uc.Chrome(headless=True, use_subprocess=False, options = chrome_options, version_main=chrome_version)
     driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
 
     #driver = webdriver.Chrome(service=Service(), options=chrome_options)  # Ensure chrome_options is defined
     #driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
-    
+
     # Define wait outside the loop
     wait = WebDriverWait(driver, 20)
 
@@ -175,9 +175,9 @@ def iterate_weekly():
     shadow_doc2 = driver.execute_script('return document')
 
     iframe_page_title = driver.title
-    print(iframe_page_title)    
+    print(iframe_page_title)
 
-    if iframe_page_title != "PAHO/WHO Data - National Dengue fever cases": 
+    if iframe_page_title != "PAHO/WHO Data - National Dengue fever cases":
         print("Wrong access")
         driver.quit()
 
@@ -189,12 +189,12 @@ def iterate_weekly():
     # find the dropdown button within the year tab
     dd_locator = (By.CSS_SELECTOR, 'span.tabComboBoxButton')
     dd_open = year_tab.find_element(*dd_locator)
-    dd_open.click()   
-    
+    dd_open.click()
+
     # select year 2024
     #y2024_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2024"]/preceding-sibling::input'
     #shadow_doc2.find_element(By.XPATH, y2024_xpath).click()
-    
+
     # select the year of interest --> 2023 is already selected now
     year_xpath = f'//div[contains(@class, "facetOverflow")]//a[text()="{year}"]/preceding-sibling::input'
     shadow_doc2.find_element(By.XPATH, year_xpath).click()
@@ -208,23 +208,22 @@ def iterate_weekly():
     time.sleep(3)
 
     # Select all countries
-    #region_tab = wait.until(EC.visibility_of_element_located((By.ID, 'tabZoneId9')))
-    # find the dropdown button within the year tab
-    #dd_locator = (By.CSS_SELECTOR, 'span.tabComboBoxButton')
-    #dd_open = region_tab.find_element(*dd_locator)
-    #dd_open.click() 
+    region_tab = wait.until(EC.visibility_of_element_located((By.ID, 'tabZoneId9')))
+    dd_locator = (By.CSS_SELECTOR, 'span.tabComboBoxButton')
+    dd_open = region_tab.find_element(*dd_locator)
+    dd_open.click()
 
-    #rAll_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="(All)"]/preceding-sibling::input'
-    #shadow_doc2.find_element(By.XPATH, rAll_xpath).click()
+    rAll_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="(All)"]/preceding-sibling::input'
+    shadow_doc2.find_element(By.XPATH, rAll_xpath).click()
 
-    # close the dropdown menu
-    #dd_close = wait.until(
-    #    EC.element_to_be_clickable((By.CLASS_NAME, "tab-glass"))
-    #)
-    #dd_close.click()
+    #lose the dropdown menu
+    dd_close = wait.until(
+       EC.element_to_be_clickable((By.CLASS_NAME, "tab-glass"))
+    )
+    dd_close.click()
 
-    #time.sleep(3)
-        
+    time.sleep(3)
+
     # Initial call to download_and_rename (for week 53 only)
     print(f"Processing Week Number: 53")
     download_and_rename(wait, shadow_doc2, 53, default_dir, downloadPath, driver, year, today)
