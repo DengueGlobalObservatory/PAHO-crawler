@@ -30,7 +30,7 @@ jobs:
           google-chrome-stable --version # Verify installation
 
       - name: Running the Python script
-        run: python scripts/PAHOCrawler_ODupdate_v2.py
+        run: python scripts/PAHOCrawler_ODupdate_.py
 
       - name: Commit and Push
         run: |
