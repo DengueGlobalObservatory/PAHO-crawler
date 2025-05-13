@@ -191,7 +191,7 @@ def iterate_weekly():
     dd_open = year_tab.find_element(*dd_locator)
     dd_open.click()
 
-        # select year 2024
+    # select year 2024
     y2024_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2024"]/preceding-sibling::input'
     shadow_doc2.find_element(By.XPATH, y2024_xpath).click()
 
@@ -203,9 +203,7 @@ def iterate_weekly():
     #shadow_doc2.find_element(By.XPATH, year_xpath).click()
 
     # close the dropdown menu
-    dd_close = wait.until(
-        EC.element_to_be_clickable((By.CLASS_NAME, "tab-glass"))
-    )
+    dd_close = year_tab.find_element(*dd_locator)
     dd_close.click()
 
     time.sleep(3)
