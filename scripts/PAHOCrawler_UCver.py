@@ -180,6 +180,21 @@ def iterate_weekly():
 
     time.sleep(3)
 
+    try:
+        view_button = shadow_doc2.find_element(By.ID, "customviews-ToolbarButton")
+        view_text = view_button.text.strip()
+
+        if "View: Original" in view_text:
+            print("Current view is: Original")
+        else:
+            print(f"Current view is not 'Original' (found: '{view_text}')")
+            driver.quit()
+            sys.exit(1)
+    except Exception as e:
+        print(f"Could not determine current view state: {e}")
+        driver.quit()
+        sys.exit(1)
+
     # find the year tab
     year_tab = wait.until(EC.visibility_of_element_located((By.ID, 'tabZoneId13')))
 
@@ -223,9 +238,11 @@ def iterate_weekly():
     dd_locator = (By.CSS_SELECTOR, 'span.tabComboBoxButton')
     dd_open = region_tab.find_element(*dd_locator)
     dd_open.click()
+    time.sleep(5)
 
     rAll_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="(All)"]/preceding-sibling::input'
     shadow_doc2.find_element(By.XPATH, rAll_xpath).click()
+    time.sleep(5)
 
     # close the dropdown menu
     dd_close = wait.until(
