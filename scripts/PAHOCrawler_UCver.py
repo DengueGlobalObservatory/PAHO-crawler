@@ -76,9 +76,6 @@ def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtensio
     os.rename(currentFile, fileDestination)
     print(f"Moved file to {fileDestination}")
 
-
-
-
 def download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, driver, year, today):
     """Download and rename the file for the given week number."""
 
@@ -191,6 +188,16 @@ def iterate_weekly():
     dd_open = year_tab.find_element(*dd_locator)
     dd_open.click()
 
+    yall_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="(All)"]/preceding-sibling::input'
+    shadow_doc2.find_element(By.XPATH, yall_xpath).click()
+
+    yall_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="(All)"]/preceding-sibling::input'
+    shadow_doc2.find_element(By.XPATH, yall_xpath).click()
+
+    # select year 2025
+    y2025_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2025"]/preceding-sibling::input'
+    shadow_doc2.find_element(By.XPATH, y2025_xpath).click()
+
     # select year 2024
     y2024_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2024"]/preceding-sibling::input'
     shadow_doc2.find_element(By.XPATH, y2024_xpath).click()
@@ -198,12 +205,14 @@ def iterate_weekly():
     y2023_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2023"]/preceding-sibling::input'
     shadow_doc2.find_element(By.XPATH, y2023_xpath).click()
 
-    # select the year of interest --> 2023 is already selected now
-    #year_xpath = f'//div[contains(@class, "facetOverflow")]//a[text()="{year}"]/preceding-sibling::input'
-    #shadow_doc2.find_element(By.XPATH, year_xpath).click()
+    # select the year of interest
+    # year_xpath = f'//div[contains(@class, "facetOverflow")]//a[text()="{year}"]/preceding-sibling::input'
+    # shadow_doc2.find_element(By.XPATH, year_xpath).click()
 
     # close the dropdown menu
-    dd_close = year_tab.find_element(*dd_locator)
+    dd_close = wait.until(
+        EC.element_to_be_clickable((By.CLASS_NAME, "tab-glass"))
+    )
     dd_close.click()
 
     time.sleep(3)
