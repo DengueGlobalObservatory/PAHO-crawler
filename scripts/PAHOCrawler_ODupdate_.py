@@ -57,7 +57,10 @@ def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtensio
     while not got_file:
         try:
             # Use glob to get the current file name
-            currentFile = max([default_dir + "/" + f for f in os.listdir(default_dir)], key=os.path.getctime)
+            files = [os.path.join(default_dir, f) for f in os.listdir(default_dir) if os.path.isfile(os.path.join(default_dir, f))]
+            if not files:
+                raise FileNotFoundError("No files found in the download directory.")
+            currentFile = max(files, key=os.path.getctime)
 
            # Ensure the file exists before proceeding
             if os.path.exists(currentFile):
