@@ -200,9 +200,8 @@ def iterate_weekly():
     shadow_doc2.find_element(By.XPATH, year_xpath).click()
 
     # close the dropdown menu
-    dd_close = wait.until(
-        EC.element_to_be_clickable((By.CLASS_NAME, "tab-glass"))
-    )
+    dd_locator = (By.CSS_SELECTOR, 'span.tabComboBoxButton')
+    dd_close = year_tab.find_element(*dd_locator)
     dd_close.click()
 
     time.sleep(3)
@@ -217,9 +216,8 @@ def iterate_weekly():
     shadow_doc2.find_element(By.XPATH, rAll_xpath).click()
 
     #lose the dropdown menu
-    dd_close = wait.until(
-       EC.element_to_be_clickable((By.CLASS_NAME, "tab-glass"))
-    )
+    dd_locator = (By.CSS_SELECTOR, 'span.tabComboBoxButton')
+    dd_close = region_tab.find_element(*dd_locator)
     dd_close.click()
 
     time.sleep(3)
