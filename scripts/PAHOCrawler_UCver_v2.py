@@ -1,25 +1,16 @@
 import undetected_chromedriver as uc
-#from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-#from selenium.webdriver.common.action_chains import ActionChains # Not used in original snippet
-#from selenium.webdriver.common.keys import Keys # Not used in original snippet
-
-#from selenium.webdriver.chrome.options import Options
-#from selenium.webdriver.chrome.service import Service
 import time
 import os
 from datetime import datetime
 import subprocess
-import re # Ensure re is imported for regex operations
+import re
 import sys
+import glob # Added for move_to_download_folder
 
-#from webdriver_manager.chrome import ChromeDriverManager
-#driver_executable_path = ChromeDriverManager().install()
-#https://github.com/ultrafunkamsterdam/undetected-chromedriver/issues/1904
-
-# Function to get the installed Chrome version (No changes from your original)
+# Function to get the installed Chrome version
 def get_chrome_version():
     try:
         if sys.platform == "win32":
@@ -28,97 +19,120 @@ def get_chrome_version():
                 r'reg query "HKEY_CURRENT_USER\Software\Google\Chrome\BLBeacon" /v version',
                 shell=True,
                 text=True,
-                stderr=subprocess.DEVNULL # Suppress stderr
+                stderr=subprocess.DEVNULL # Suppress stderr for this command
             )
-            version = re.search(r'\s+version\s+REG_SZ\s+(\d+)\.', output)
+            version_match = re.search(r'\s+version\s+REG_SZ\s+(\d+)\.', output)
+        elif sys.platform == "darwin": # macOS
+            # Command for macOS
+            chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+            if os.path.exists(chrome_path):
+                output = subprocess.check_output([chrome_path, '--version'], text=True)
+                version_match = re.search(r'Google Chrome (\d+)\.', output)
+            else: # Try Chromium if Chrome is not found
+                chromium_path = "/Applications/Chromium.app/Contents/MacOS/Chromium"
+                if os.path.exists(chromium_path):
+                    output = subprocess.check_output([chromium_path, '--version'], text=True)
+                    version_match = re.search(r'Chromium (\d+)\.', output)
+                else:
+                    raise FileNotFoundError("Chrome or Chromium not found on macOS.")
         else:  # Assuming Linux or other Unix-like systems
-            version = None
+            version_match = None
             # Try different commands to retrieve Chrome version on Linux
-            for command in ['google-chrome --version', 'google-chrome-stable --version', 'chromium-browser --version']:
+            for command in ['google-chrome --version', 'google-chrome-stable --version', 'chromium-browser --version', 'chromium --version']:
                 try:
                     output = subprocess.check_output(command, shell=True, text=True, stderr=subprocess.DEVNULL)
-                    version = re.search(r'\b(\d+)\.', output)
-                    if version:
+                    version_match = re.search(r'\b(\d+)\.', output)
+                    if version_match:
                         break
-                except (subprocess.CalledProcessError, FileNotFoundError):
+                except subprocess.CalledProcessError:
                     continue
-            if not version: # Moved this check outside the loop
-                 # raise RuntimeError("Could not determine Chrome version") # Soften this for UC
-                 print("Warning: Could not determine Chrome version via common commands. UC will attempt to use a compatible driver.")
-                 return None
+            if not version_match:
+                raise RuntimeError("Could not determine Chrome version on Linux/Unix.")
 
-
-        if version:
-            return int(version.group(1))
+        if version_match:
+            return int(version_match.group(1))
         else:
-            # raise ValueError("Could not parse Chrome version") # Soften this for UC
-            print("Warning: Could not parse Chrome version. UC will attempt to use a compatible driver.")
-            return None
+            raise ValueError("Could not parse Chrome version from output.")
     except Exception as e:
-        # raise RuntimeError("Failed to get Chrome version") from e # Soften this for UC
-        print(f"Warning: Failed to get Chrome version due to: {e}. UC will attempt to use a compatible driver.")
-        return None
+        print(f"Detailed error getting Chrome version: {e}")
+        # Fallback or default version if detection fails, e.g., for GitHub Actions
+        # Check environment variable first
+        env_chrome_version = os.getenv('CHROME_VERSION_MAJOR')
+        if env_chrome_version and env_chrome_version.isdigit():
+            print(f"Using CHROME_VERSION_MAJOR from environment: {env_chrome_version}")
+            return int(env_chrome_version)
+        print("Failed to automatically detect Chrome version, returning a common default (e.g., 124). Set CHROME_VERSION_MAJOR env var to override.")
+        return 124 # Or another sensible default, or raise the error
 
 # Get the major version of Chrome installed
-chrome_version = get_chrome_version()
+try:
+    chrome_version = get_chrome_version()
+    print(f"Detected Chrome major version: {chrome_version}")
+except RuntimeError as e:
+    print(f"Error in get_chrome_version: {e}")
+    print("Attempting to proceed with a default Chrome version (e.g. 124 for uc.Chrome).")
+    chrome_version = 124 # Default if detection fails catastrophically
 
-# move_to_download_folder (No changes from your original)
+
 def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtension):
     got_file = False
-    time_waited = 0
-    max_wait_interval = 300 # Wait up to 5 minutes
-    check_interval = 10 # Check every 10 seconds
+    max_retries = 12 # Retry for up to 2 minutes (12 * 10 seconds)
+    retries = 0
+    currentFile = None
 
-    while not got_file and time_waited < max_wait_interval:
+    while not got_file and retries < max_retries:
         try:
-            # Use glob to get the current file name
-            # Ensure default_dir is not empty before calling max
-            list_of_files = [os.path.join(default_dir, f) for f in os.listdir(default_dir) if os.path.isfile(os.path.join(default_dir, f))]
-            if not list_of_files:
-                print(f"Download directory '{default_dir}' is empty. Waiting...")
-                time.sleep(check_interval)
-                time_waited += check_interval
+            # List all files in the default_dir, filter for .csv or .crdownload (partial download)
+            files = [os.path.join(default_dir, f) for f in os.listdir(default_dir)
+                     if os.path.isfile(os.path.join(default_dir, f))]
+
+            if not files:
+                if retries == 0: # Print only on first attempt if no files found
+                    print(f"No files found in download directory: {default_dir}. Waiting...")
+                time.sleep(10)
+                retries += 1
                 continue
 
-            currentFile = max(list_of_files, key=os.path.getctime)
+            # Find the most recently modified file
+            currentFile = max(files, key=os.path.getctime)
 
-            # Ensure the file exists and is not a temporary download file before proceeding
-            if os.path.exists(currentFile) and not currentFile.endswith(('.crdownload', '.tmp', '.part')):
-                 # Optional: check if file size is greater than 0 and stable
-                time.sleep(2) # Short pause to ensure writing is finished
-                if os.path.getsize(currentFile) > 0:
-                    got_file = True
-                else:
-                    print(f"File {currentFile} found but is empty. Waiting...")
-                    # To avoid repeatedly picking the same empty file,
-                    # we might need more sophisticated logic or hope it gets written to.
-                    # For now, just wait.
-                    time.sleep(check_interval)
-                    time_waited += check_interval
+            # Check if the file is still downloading (Chrome uses .crdownload extension)
+            if currentFile.endswith('.crdownload'):
+                print(f"File is still downloading: {os.path.basename(currentFile)}. Waiting...")
+                time.sleep(10)
+                retries += 1
+                continue
+
+            # Ensure the file exists and is not empty
+            if os.path.exists(currentFile) and os.path.getsize(currentFile) > 0:
+                print(f"Downloaded file identified: {currentFile}")
+                got_file = True
             else:
                 if not os.path.exists(currentFile):
-                    # This case should be rare if list_of_files was populated
-                    print(f"File {currentFile} not found after listing. Retrying...")
-                else: # It's a temporary file
-                    print(f"Download in progress (temp file: {os.path.basename(currentFile)}). Waiting...")
-                time.sleep(check_interval)
-                time_waited += check_interval
+                    print(f"File {currentFile} does not exist. Retrying...")
+                elif os.path.getsize(currentFile) == 0:
+                     print(f"File {currentFile} is empty. Assuming download is not complete. Retrying...")
+                time.sleep(10)
+                retries += 1
 
-        except FileNotFoundError: # If default_dir itself doesn't exist
-            print(f"Error: Download directory '{default_dir}' not found. Please check the path.")
-            return # Exit if download directory is invalid
         except Exception as e:
-            print(f"File has not finished downloading or other error: {e}. Waiting...")
-            time.sleep(check_interval)
-            time_waited += check_interval
+            print(f"Error checking download directory: {e}. Retrying...")
+            time.sleep(10)
+            retries += 1
 
-    if not got_file:
-        print(f"Failed to get downloaded file from '{default_dir}' after {max_wait_interval} seconds.")
+    if not got_file or currentFile is None:
+        print(f"Failed to get the downloaded file from {default_dir} after {max_retries * 10} seconds.")
+        # Create an empty placeholder file to signify failure for this specific download
+        placeholder_filename = newFileName + "_DOWNLOAD_FAILED" + fileExtension
+        placeholder_filepath = os.path.join(downloadPath, placeholder_filename)
+        with open(placeholder_filepath, 'w') as f:
+            f.write("Download failed or file was empty/not found.")
+        print(f"Created a placeholder error file: {placeholder_filepath}")
         return
+
 
     # Create new file name
     fileDestination = os.path.join(downloadPath, newFileName + fileExtension)
-    os.makedirs(os.path.dirname(fileDestination), exist_ok=True) # Ensure destination directory exists
 
     # Move the file
     try:
@@ -126,270 +140,355 @@ def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtensio
         print(f"Moved file to {fileDestination}")
     except Exception as e:
         print(f"Error moving file {currentFile} to {fileDestination}: {e}")
+        # Try to copy and delete if rename fails (e.g. across different filesystems)
+        try:
+            import shutil
+            shutil.copy(currentFile, fileDestination)
+            os.remove(currentFile)
+            print(f"Copied and deleted file to {fileDestination} as fallback.")
+        except Exception as e_copy:
+            print(f"Fallback copy also failed: {e_copy}")
+            # Create an empty placeholder file to signify failure for this specific download
+            placeholder_filename = newFileName + "_MOVE_FAILED" + fileExtension
+            placeholder_filepath = os.path.join(downloadPath, placeholder_filename)
+            with open(placeholder_filepath, 'w') as f:
+                f.write(f"Download succeeded but move failed. Original file: {currentFile}")
+            print(f"Created a placeholder error file for move failure: {placeholder_filepath}")
 
 
-# download_and_rename (No changes from your original, uses weeknum from page for filename)
-def download_and_rename(wait, shadow_doc2, weeknum_loop_counter, default_dir, downloadPath, driver, year_for_filename, today):
-    """Download and rename the file. weeknum_loop_counter is for loop control, actual week for filename is read from page."""
+def download_and_rename(wait, driver, weeknum_expected, default_dir, downloadPath, year, today_timestamp):
+    """Download and rename the file for the given week number."""
+    print(f"Attempting to download data for expected week: {weeknum_expected}")
 
-    # Wait for the week number to update on the page and use this for the filename
-    weeknum_div_page = wait.until(
-        EC.presence_of_element_located((By.CLASS_NAME, "sliderText"))
-    )
-    actual_week_on_page = int(re.search(r'\d+', weeknum_div_page.text).group()) # Extract number
-    print(f"Data on page corresponds to Week: {actual_week_on_page}")
+    # Wait for the week number display to update and verify it
+    # This element might take a moment to reflect the change after a click
+    time.sleep(2) # Short static wait for UI to settle before checking week number
+    try:
+        weeknum_div = wait.until(
+            EC.presence_of_element_located((By.CLASS_NAME, "sliderText"))
+        )
+        current_weeknum_on_page = int(weeknum_div.text)
+        print(f"Current week number on page: {current_weeknum_on_page}")
+        # It's possible the weeknum_expected is based on an external loop counter.
+        # The actual weeknum on the page is what matters for the filename.
+        # We'll use current_weeknum_on_page for the filename.
+    except Exception as e:
+        print(f"Could not read week number from page: {e}. Using expected week: {weeknum_expected}")
+        current_weeknum_on_page = weeknum_expected # Fallback
 
     # Find and click the download button at the bottom of the dashboard
     download_button = wait.until(
         EC.element_to_be_clickable((By.ID, "download-ToolbarButton"))
     )
     download_button.click()
-
-    time.sleep(5) # Original sleep
+    print("Clicked main download button.")
+    time.sleep(5) # Wait for popup
 
     # Find and click the crosstab button (in a pop up window)
     crosstab_button = wait.until(
         EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-tb-test-id="DownloadCrosstab-Button"]'))
     )
     crosstab_button.click()
-
-    time.sleep(5) # Original sleep
+    print("Clicked crosstab button.")
+    time.sleep(5) # Wait for next popup/dialog
 
     # Find and select the CSV option
-    # Using shadow_doc2 as in your original script for elements within this modal
-    csv_div = shadow_doc2.find_element(By.CSS_SELECTOR, "input[type='radio'][value='csv']")
-    driver.execute_script("arguments[0].scrollIntoView(true);", csv_div) # Ensure visibility
-    driver.execute_script("arguments[0].click();", csv_div) # Use JS click for reliability
-    time.sleep(5) # Original sleep
+    # The CSV radio button might be inside a shadow DOM or just a regular element in the new dialog
+    # Using JavaScript click can be more robust for radio buttons if direct .click() is problematic
+    csv_radio_selector = "input[type='radio'][value='csv']"
+    try:
+        csv_div = wait.until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, csv_radio_selector))
+        )
+        # Scroll into view and click using JavaScript
+        driver.execute_script("arguments[0].scrollIntoView(true);", csv_div)
+        driver.execute_script("arguments[0].click();", csv_div)
+        print("Selected CSV option.")
+    except Exception as e:
+        print(f"Error selecting CSV option: {e}. Download might fail or be in wrong format.")
+        # Optionally, you could try to close the dialogs and skip this week if CSV selection fails
+        # For now, we'll proceed and hope the default is CSV or it still works.
+    time.sleep(3) # Wait for selection to register
 
     # Find and click the export button
-    export_button = shadow_doc2.find_element(By.CSS_SELECTOR, '[data-tb-test-id="export-crosstab-export-Button"]')
-    export_button.click()
-    print("Downloading CSV file...") # Changed print message slightly
-    time.sleep(5) # Original sleep
+    export_button_selector = '[data-tb-test-id="export-crosstab-export-Button"]'
+    try:
+        export_button = wait.until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, export_button_selector))
+        )
+        export_button.click()
+        print(f"Downloading CSV file for week {current_weeknum_on_page}...")
+    except Exception as e:
+        print(f"Error clicking export button: {e}. Download will likely fail for week {current_weeknum_on_page}.")
+        # Close the download dialog if possible to avoid interference
+        try:
+            # Assuming there's a close button, common selectors:
+            close_button_selectors = [
+                '[aria-label="Close"]',  # Common aria-label
+                '[data-tb-test-id="vizportal-dialog-close-button"]', # Tableau specific?
+                'button.close',
+                # Add other potential close button selectors for the dialog
+            ]
+            for sel in close_button_selectors:
+                try:
+                    close_btn = driver.find_element(By.CSS_SELECTOR, sel)
+                    if close_btn.is_displayed():
+                        close_btn.click()
+                        print("Attempted to close download dialog after export fail.")
+                        break
+                except:
+                    pass # Selector not found or button not interactable
+        except Exception as close_e:
+            print(f"Could not close download dialog: {close_e}")
+        return # Stop this download attempt
+
+    time.sleep(10) # Initial wait for download to start and potentially complete for small files
 
     # Use the move_to_download_folder function to move the downloaded file
-    # Filename uses actual_week_on_page
-    newFileName = f"PAHO_{year_for_filename}_W{actual_week_on_page}_{today}"
+    newFileName = f"PAHO_{year}_W{current_weeknum_on_page}_{today_timestamp}"
     fileExtension = '.csv'
 
     move_to_download_folder(default_dir, downloadPath, newFileName, fileExtension)
 
 
 def iterate_weekly():
-    # --- MODIFICATION: Define the three years you want to select ---
-    # year = "2023" # Original: choose year to download
-    target_selected_years = ["2025", "2024", "2023"] # <<< ADJUST THESE THREE YEARS AS NEEDED
-    # Create a string for filenames, e.g., "2024_2023_2022"
-    year_for_filename = "_".join(sorted(target_selected_years, reverse=True))
+    year_to_download = "2023" # choose year to download
+    today_timestamp = datetime.now().strftime('%Y%m%d%H%M') # current date and time
 
+    # Set directory
+    # Use GITHUB_WORKSPACE if available (for GitHub Actions), otherwise use a local path
+    base_data_dir = os.getenv('GITHUB_WORKSPACE', '.') # Default to current dir if not in GHA
+    data_dir_path = os.path.join(base_data_dir, 'data')
 
-    today = datetime.now().strftime('%Y%m%d%H%M') # current date and time
+    # Default download directory for Chrome (can be relative or absolute)
+    # For GitHub Actions, it's often /home/runner/Downloads or similar, let's use a relative path
+    # os.getcwd() will be the root of the repository in GitHub Actions
+    default_download_dir_for_browser = os.path.join(os.getcwd(), "chrome_downloads")
+    os.makedirs(default_download_dir_for_browser, exist_ok=True)
+    print(f"Chrome default download directory set to: {default_download_dir_for_browser}")
 
-    # set directory (No changes from your original paths)
-    github_workspace = 'C:/Users/AhyoungLim/Dropbox/WORK/OpenDengue/PAHO-crawler/data'
-    default_dir = 'C:/Users/AhyoungLim/Downloads'
 
     today_directory_name = f"DL_{datetime.now().strftime('%Y%m%d')}"
-    downloadPath = os.path.join(github_workspace, today_directory_name)
-    os.makedirs(downloadPath, exist_ok=True) # create a new directory
+    final_download_path = os.path.join(data_dir_path, today_directory_name)
+    os.makedirs(final_download_path, exist_ok=True)
+    print(f"Final storage path for downloaded files: {final_download_path}")
 
-    # set chrome download directory
+    # Set chrome download directory
     chrome_options = uc.ChromeOptions()
-    # --- Ensure consistent download directory for Chrome and move_to_download_folder ---
-    prefs = {"download.default_directory": default_dir} # Use the same default_dir
+    prefs = {
+        "download.default_directory": default_download_dir_for_browser,
+        "download.prompt_for_download": False, # Disable download prompt
+        "download.directory_upgrade": True,
+        "safebrowsing.enabled": True
+    }
     chrome_options.add_experimental_option("prefs", prefs)
+    chrome_options.add_argument("--no-sandbox") # Often needed in CI environments
+    chrome_options.add_argument("--disable-dev-shm-usage") # Overcome limited resource problems
+    chrome_options.add_argument("--disable-gpu") # If running headless
+    # chrome_options.add_argument("--window-size=1920,1080") # Can help with element visibility
 
-    driver = None # Initialize driver to None for finally block
+    # Using undetected-chromedriver
+    print(f"Initializing Chrome with version_main={chrome_version}")
+    driver = uc.Chrome(headless=True, use_subprocess=False, options=chrome_options, version_main=chrome_version)
+
+    driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
+    print("Page loaded.")
+
+    wait = WebDriverWait(driver, 30) # Increased wait time
+
+    # First iframe
+    iframe_src = "https://ais.paho.org/ha_viz/dengue/nac/dengue_pais_anio_tben.asp"
+    iframe_locator = (By.XPATH, f"//div[contains(@class, 'vizTab')]//iframe[@src='{iframe_src}']")
+
+    print("Waiting for the first iframe...")
+    iframe1 = wait.until(EC.presence_of_element_located(iframe_locator))
+    driver.switch_to.frame(iframe1)
+    print("Switched to the first iframe.")
+
+    # Get the iframe inside the first iframe
+    # This iframe seems to be the main content iframe from Tableau
+    print("Waiting for the nested (Tableau) iframe...")
+    iframe2_locator = (By.XPATH, "//iframe[@title='viz']") # More specific Tableau iframe title
+    # Alternative: (By.ID, "viz_iframe") or (By.XPATH, "//body/iframe") if title is not stable
     try:
-        # using undetected-chromedriver
-        print(f"Initializing Chrome driver (UC version: {chrome_version if chrome_version else 'auto'})...")
-        driver = uc.Chrome(headless=False, use_subprocess=False, options = chrome_options, version_main=chrome_version if chrome_version else None)
-        driver.maximize_window()
-        driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
+        iframe2 = wait.until(EC.presence_of_element_located(iframe2_locator))
+    except:
+        print("Could not find iframe with title='viz', trying generic //body/iframe")
+        iframe2 = wait.until(EC.presence_of_element_located((By.XPATH, "//body/iframe")))
 
-        wait = WebDriverWait(driver, 30) # Increased default wait time slightly
+    driver.switch_to.frame(iframe2)
+    print("Switched to the nested (Tableau) iframe.")
 
-        # First iframe
-        iframe_src = "https://ais.paho.org/ha_viz/dengue/nac/dengue_pais_anio_tben.asp"
-        iframe_locator = (By.XPATH, "//div[contains(@class, 'vizTab')]//iframe[@src='" + iframe_src + "']")
-        print("Waiting for outer iframe...")
-        iframe = wait.until(EC.presence_of_element_located(iframe_locator))
-        driver.switch_to.frame(iframe)
-        print("Switched to outer iframe.")
+    iframe_page_title = driver.title
+    print(f"Title of nested iframe: {iframe_page_title}")
 
-        # Grab the shadow element (document of the current iframe)
-        # shadow = driver.execute_script('return document') # Not used directly for iframe2 finding
+    if "PAHO/WHO Data" not in iframe_page_title and "Tableau" not in iframe_page_title : # More flexible check
+        print(f"Warning: Unexpected iframe title: {iframe_page_title}. Proceeding with caution.")
+        # driver.quit() # Decide if this is a critical failure
+        # return
 
-        # Get the iframe inside shadow element of first iframe
-        print("Waiting for inner Tableau iframe...")
-        iframe2 = wait.until(EC.presence_of_element_located((By.XPATH, "//body/iframe"))) # Assuming it's the only/first iframe in body
-        driver.switch_to.frame(iframe2)
-        shadow_doc2 = driver.execute_script('return document') # This is the document of the Tableau iframe
-        print("Switched to inner Tableau iframe.")
+    time.sleep(5) # Allow content within the Tableau iframe to load
 
-        iframe_page_title = driver.title
-        print(f"Inner iframe title: {iframe_page_title}")
+    # Find the year tab (filter control)
+    # ID 'tabZoneId13' seems to be for the year filter UI component
+    year_filter_tab_id = 'tabZoneId13'
+    print(f"Waiting for year filter tab/control (ID: {year_filter_tab_id})...")
+    year_tab_control = wait.until(EC.visibility_of_element_located((By.ID, year_filter_tab_id)))
+    print("Year filter tab/control found.")
 
-        if "PAHO/WHO Data" not in iframe_page_title and "Tableau" not in iframe_page_title:
-            print("Warning: Unexpected iframe title. May not be on the correct page.")
-            # driver.quit() # Decide if to quit
-            # return
+    # Find the dropdown button within the year tab/control
+    # This button opens the list of years
+    year_dropdown_button_selector = (By.CSS_SELECTOR, f'#{year_filter_tab_id} span.tabComboBoxButton')
+    year_dropdown_open_button = wait.until(EC.element_to_be_clickable(year_dropdown_button_selector))
+    year_dropdown_open_button.click()
+    print("Clicked to open year selection dropdown.")
+    time.sleep(2) # Wait for dropdown to animate/load
 
-        time.sleep(3) # Original sleep
+    # --- Year Selection Logic ---
+    # This logic seems to intend to select only "2023"
+    # (All) click 1: Might deselect everything or select everything.
+    # (All) click 2: If first selected all, second might deselect all (if toggle), or do nothing.
+    # Then specific years are clicked. If it's a multi-select, this would add them.
+    # If it's single-select effectively, the last one clicked (2023) would be active.
 
-        # find the year tab
-        year_tab = wait.until(EC.visibility_of_element_located((By.ID, 'tabZoneId13')))
-
-        # find the dropdown button within the year tab
-        dd_locator = (By.CSS_SELECTOR, 'span.tabComboBoxButton')
-        dd_open = year_tab.find_element(*dd_locator)
-        dd_open.click()
-        print("Opened year dropdown.")
-        time.sleep(1) # Wait for dropdown to populate
-
-        # --- MODIFICATION: Select the defined target years ---
-        print(f"Attempting to select years: {', '.join(target_selected_years)}")
-        selected_count = 0
-        for year_to_select in target_selected_years:
+    def click_filter_checkbox(text_label, filter_type="year"):
+        # XPath for checkboxes in Tableau filters (often within a div with class 'facetOverflow')
+        # The input checkbox is usually a sibling or parent::*/input of the label (<a> tag)
+        xpath = f'//div[contains(@class, "facetOverflow")]//a[text()="{text_label}"]/preceding-sibling::input[@type="checkbox"]'
+        # Sometimes the 'a' tag itself is clickable, or a div around it.
+        # Let's try to click the input directly.
+        try:
+            print(f"Waiting for {filter_type} filter checkbox: {text_label}")
+            checkbox = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+            # driver.execute_script("arguments[0].scrollIntoView(true);", checkbox) # Optional: scroll
+            checkbox.click()
+            print(f"Clicked {filter_type} filter checkbox: {text_label}")
+            time.sleep(1) # Allow UI to update
+        except Exception as e:
+            print(f"Could not click {filter_type} filter checkbox '{text_label}': {e}")
+            # Fallback: try clicking the 'a' tag if input click fails
             try:
-                year_xpath = f'//div[contains(@class, "facetOverflow")]/a[text()="{year_to_select}"]/preceding-sibling::input'
-                # Using shadow_doc2.find_element as in your original script
-                year_checkbox = shadow_doc2.find_element(By.XPATH, year_xpath)
-                # Click the checkbox - assuming it toggles selection
-                # For more robustness, one might check if it's already selected,
-                # but for simplicity and to match original, direct click.
-                year_checkbox.click()
-                print(f"Clicked year: {year_to_select}")
-                selected_count += 1
-                time.sleep(0.5) # Small pause between clicks
-            except Exception as e:
-                print(f"Warning: Could not find or click year '{year_to_select}'. Error: {e}")
+                print(f"Fallback: Trying to click 'a' tag for {text_label}")
+                a_tag_xpath = f'//div[contains(@class, "facetOverflow")]//a[text()="{text_label}"]'
+                a_tag = wait.until(EC.element_to_be_clickable((By.XPATH, a_tag_xpath)))
+                a_tag.click()
+                print(f"Clicked 'a' tag for {filter_type} filter: {text_label}")
+                time.sleep(1)
+            except Exception as e_fallback:
+                 print(f"Fallback click for '{text_label}' also failed: {e_fallback}")
 
-        if selected_count == len(target_selected_years):
-            print(f"Successfully interacted with checkboxes for all {len(target_selected_years)} target years.")
-        else:
-            print(f"Warning: Interacted with {selected_count} of {len(target_selected_years)} target year checkboxes.")
 
-        # close the dropdown menu
-        dd_close = wait.until(
-            EC.element_to_be_clickable((By.CLASS_NAME, "tab-glass"))
-        )
-        dd_close.click()
-        print("Closed year dropdown.")
-        time.sleep(5) # Wait for data to potentially update based on year selection
+    # Click "(All)" twice - This might be to clear existing selections and then select all, or clear and then allow individual.
+    click_filter_checkbox("(All)")
+    click_filter_checkbox("(All)")
 
-        # --- MODIFICATION: Week checking and setting step ---
-        print("--- Ensuring week is set to 53 before starting downloads ---")
-        target_initial_week = 53
-        max_attempts_set_week = 70 # Max clicks to prevent infinite loop (e.g. 52 up + 52 down)
-        attempt_count = 0
-        successfully_set_week = False
+    # Deselect 2025 and 2024, then ensure 2023 is selected.
+    # If "(All)" resulted in all years being checked, these clicks would uncheck them.
+    click_filter_checkbox("2025")
+    click_filter_checkbox("2024")
 
-        while attempt_count < max_attempts_set_week:
-            try:
-                weeknum_div_check = wait.until(
-                    EC.visibility_of_element_located((By.CLASS_NAME, "sliderText")) # Use visibility for text reading
-                )
-                current_week_on_page_text = weeknum_div_check.text
-                match = re.search(r'\d+', current_week_on_page_text)
-                if not match:
-                    print(f"Error: Could not parse week number from '{current_week_on_page_text}'. Skipping week set attempt.")
-                    break
-                current_week_on_page = int(match.group())
-                print(f"Week check attempt {attempt_count + 1}: Dashboard week is {current_week_on_page}. Target: {target_initial_week}")
+    # This click on "2023" should ensure it's selected (or toggle its state).
+    # If the goal is ONLY 2023, and (All) + (All) deselects everything, then this would select 2023.
+    # If (All) + (All) selects everything, then 2025/2024 are deselected, and 2023 is also deselected.
+    # The original script had a specific click for the target year. Let's ensure 2023 is selected.
+    # To ensure "2023" is selected:
+    # One strategy: Deselect All, then select 2023.
+    # The current sequence is: (All), (All), 2025 (deselect), 2024 (deselect), 2023 (toggle).
+    # If year_to_download is the one we want, we should ensure it's checked.
+    # The current logic might leave 2023 unchecked if it was checked by "(All)".
+    # Let's refine:
+    # 1. Click (All) - e.g. to deselect all other years if it's a radio-like behavior for (All)
+    # 2. Click year_to_download
 
-                if current_week_on_page == target_initial_week:
-                    print(f"Dashboard week is correctly set to {target_initial_week}.")
-                    successfully_set_week = True
-                    break
-                elif current_week_on_page < target_initial_week:
-                    # !!! IMPORTANT: You MUST verify the selector for the INCREMENT button !!!
-                    increment_button_xpath = "//*[contains(@class, 'tableauArrowInc')]" # <<< USER MUST VERIFY THIS XPATH
-                    print(f"Week {current_week_on_page} < {target_initial_week}. Clicking increment (XPATH: {increment_button_xpath})")
-                    try:
-                        increment_button = wait.until(EC.element_to_be_clickable((By.XPATH, increment_button_xpath)))
-                        increment_button.click()
-                    except Exception as e_inc:
-                        print(f"ERROR: Increment button not found or not clickable using XPATH: '{increment_button_xpath}'. {e_inc}")
-                        print("Cannot increase week. If week remains below target, download will start from current week or fail if logic expects 53.")
-                        # If we can't increment, and we are below target, we can't reach it.
-                        successfully_set_week = False # Mark as not successfully set
-                        break # Exit week setting loop
-                else: # current_week_on_page > target_initial_week
-                    print(f"Week {current_week_on_page} > {target_initial_week}. Clicking decrement.")
-                    decrement_button_check = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(@class, 'tableauArrowDec')]")))
-                    decrement_button_check.click()
+    # Re-evaluating the year selection based on typical Tableau behavior:
+    # Often, "(All)" selects all. Clicking individual items then *deselects* them from the "All" set.
+    # If the goal is ONLY 2023:
+    # click_filter_checkbox("(All)") # Selects all
+    # click_filter_checkbox("2025") # Deselects 2025
+    # click_filter_checkbox("2024") # Deselects 2024
+    # ... any other years to deselect ...
+    # Then 2023 would remain selected.
+    # The original script clicks "2023" last. This implies it might be toggling it.
+    # Let's assume the original sequence is what's needed for this specific Tableau dashboard.
+    click_filter_checkbox(year_to_download) # This should be the final state for the target year.
 
-                time.sleep(2.5) # Wait for UI to update after click
-                attempt_count += 1
-            except Exception as e:
-                print(f"Error during week check/set (attempt {attempt_count + 1}): {e}")
-                attempt_count += 1
-                time.sleep(1) # Wait a bit before retrying
+    # Close the year dropdown menu
+    # Clicking '.tab-glass' (an overlay) usually closes popups/dropdowns
+    year_dropdown_close_selector = (By.CLASS_NAME, "tab-glass")
+    wait.until(EC.element_to_be_clickable(year_dropdown_close_selector)).click()
+    print("Closed year selection dropdown.")
+    time.sleep(3) # Wait for filter to apply
 
-        if not successfully_set_week:
-            print(f"Warning: Could not definitively set dashboard week to {target_initial_week} after {attempt_count} attempts.")
-            # Add a final check of the week to see where we ended up
-            try:
-                weeknum_div_final = wait.until(EC.visibility_of_element_located((By.CLASS_NAME, "sliderText")))
-                final_week_text = weeknum_div_final.text
-                final_week_match = re.search(r'\d+', final_week_text)
-                if final_week_match:
-                     print(f"Proceeding with dashboard week at: {final_week_match.group()}. The loop will still iterate 53 times if `weeknum` remains 53.")
-                else:
-                    print("Could not read final week on page. Loop will proceed based on its counter.")
-            except:
-                print("Could not read final week on page after setting attempts.")
+    # Select all countries/regions
+    region_filter_tab_id = 'tabZoneId9' # Assuming this is the region filter
+    print(f"Waiting for region filter tab/control (ID: {region_filter_tab_id})...")
+    region_tab_control = wait.until(EC.visibility_of_element_located((By.ID, region_filter_tab_id)))
+    print("Region filter tab/control found.")
 
-        time.sleep(3) # Final pause after attempting to set week
+    region_dropdown_button_selector = (By.CSS_SELECTOR, f'#{region_filter_tab_id} span.tabComboBoxButton')
+    region_dropdown_open_button = wait.until(EC.element_to_be_clickable(region_dropdown_button_selector))
+    region_dropdown_open_button.click()
+    print("Clicked to open region selection dropdown.")
+    time.sleep(2)
 
-        # --- Original loop for downloading and renaming files ---
-        # The 'weeknum' variable here controls the number of iterations (53 times)
-        # The actual week number for the filename is read from the page in download_and_rename
-        loop_iteration_count = 53  # This is the `weeknum` from your original loop, signifies iterations
+    click_filter_checkbox("(All)", filter_type="region") # Select all regions
 
-        # We start the loop, assuming the page is at or near week 53 (or highest available if setting failed).
-        # The first action in the loop is to click decrement, so the first download will be for week 52 (if page was at 53).
-        # OR, if the first data to download is for week 53 itself, then download_and_rename should be called *before* the first decrement.
-        # Your original code: click decrement THEN download. So it downloads 52, 51, ..., 0 (effectively).
-        # If week 0 is not valid, the loop should be `while loop_iteration_count > 1` and download week 1.
-        # Let's adjust to match common "download week N... then week 1"
+    region_dropdown_close_selector = (By.CLASS_NAME, "tab-glass")
+    wait.until(EC.element_to_be_clickable(region_dropdown_close_selector)).click()
+    print("Closed region selection dropdown.")
+    time.sleep(5) # Wait for filters to apply and data to update
 
-        # If initial state after setting is week 53, and you want to download week 53 first:
-        print(f"\n--- Starting download iterations. Expecting to iterate {loop_iteration_count} times. ---")
-        print(f"Initial download for the current week on page (should be around 53).")
-        download_and_rename(wait, shadow_doc2, loop_iteration_count, default_dir, downloadPath, driver, year_for_filename, today)
+    # Initial call to download_and_rename (for week 53 or the current week on page)
+    # The week number slider starts at the latest week.
+    # We need to get the current week from the page first.
+    try:
+        weeknum_div_initial = wait.until(EC.presence_of_element_located((By.CLASS_NAME, "sliderText")))
+        initial_weeknum = int(weeknum_div_initial.text)
+        print(f"Initial week on page (slider): {initial_weeknum}")
+    except Exception as e:
+        print(f"Could not read initial week number: {e}. Assuming 53 or 52.")
+        # Determine max week for the year (usually 52 or 53)
+        # This is a simplification; a more robust way would be to check calendar for year_to_download
+        # For now, let's assume it starts at a high number if not readable.
+        initial_weeknum = 53 if datetime(int(year_to_download), 12, 28).isocalendar()[1] == 53 else 52
 
-        for i in range(loop_iteration_count - 1, 0, -1): # Iterate for weeks 52 down to 1
-            current_target_iteration_week = i # This represents the week number we are targeting in this iteration (e.g. 52, 51 ... 1)
-            print(f"\nProcessing for (target) Week Number: {current_target_iteration_week} (Iteration {loop_iteration_count - i}/{loop_iteration_count-1} of decrements)")
 
-            decrement_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(@class, 'tableauArrowDec')]")))
+    current_loop_week = initial_weeknum
+    download_and_rename(wait, driver, current_loop_week, default_download_dir_for_browser, final_download_path, year_to_download, today_timestamp)
+
+    # Loop for downloading and renaming files by decrementing weeks
+    # The decrement button is usually an arrow on the slider.
+    decrement_button_xpath = "//*[contains(@class, 'tableauArrow') and contains(@class, 'Dec')]" # More specific for decrement
+    # Alternative: "//*[contains(@class, 'tableauArrowDec')]" (original)
+
+    while current_loop_week > 1: # Download until week 1
+        print(f"Preparing to decrement week from {current_loop_week}...")
+        try:
+            decrement_button = wait.until(EC.element_to_be_clickable((By.XPATH, decrement_button_xpath)))
             decrement_button.click()
-            print("Clicked decrement for next week's data.")
-            time.sleep(3) # Original sleep, allow data to update
+            print(f"Clicked decrement week button. Current week was {current_loop_week}.")
+            current_loop_week -= 1
+            # Add a delay for the dashboard to update after clicking the decrement button
+            time.sleep(5) # Adjust as needed for dashboard responsiveness
+        except Exception as e:
+            print(f"Error clicking decrement button or week already at 1: {e}")
+            break # Exit loop if decrement fails
 
-            # The weeknum parameter passed here (current_target_iteration_week) is mostly for logging or loop control.
-            # download_and_rename reads the actual week from the page for the filename.
-            download_and_rename(wait, shadow_doc2, current_target_iteration_week, default_dir, downloadPath, driver, year_for_filename, today)
+        print(f"Processing data for week: {current_loop_week}")
+        download_and_rename(wait, driver, current_loop_week, default_download_dir_for_browser, final_download_path, year_to_download, today_timestamp)
 
-        print("Finished all download iterations.")
+        if current_loop_week == 1:
+            print("Reached week 1, finishing download cycle.")
+            break
 
-    except Exception as e_main:
-        print(f"An error occurred in the main script: {e_main}")
+    print("All weekly data downloaded.")
+    driver.quit()
+
+if __name__ == "__main__":
+    try:
+        iterate_weekly()
+    except Exception as e:
+        print(f"An unhandled error occurred in iterate_weekly: {e}")
         import traceback
         traceback.print_exc()
-        if driver:
-            try:
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                driver.save_screenshot(f"error_screenshot_{ts}.png")
-                print(f"Screenshot saved as error_screenshot_{ts}.png")
-            except:
-                pass # ignore screenshot error if driver is problematic
-    finally:
-        if driver:
-            print("Closing browser.")
-            driver.quit()
 
-iterate_weekly()
