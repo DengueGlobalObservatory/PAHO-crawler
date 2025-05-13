@@ -52,7 +52,7 @@ prefs = {
 chrome_options.add_experimental_option("prefs", prefs)
 
 # using undetected-chromedriver
-driver = uc.Chrome(headless=True, use_subprocess=False, options = chrome_options)
+driver = uc.Chrome(headless=False, use_subprocess=False, options = chrome_options)
 driver.get('https://worldhealthorg.shinyapps.io/dengue_global/')
 
 print(driver.title)
