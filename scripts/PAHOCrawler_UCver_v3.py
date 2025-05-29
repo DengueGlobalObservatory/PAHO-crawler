@@ -180,9 +180,11 @@ def iterate_weekly():
     iframe_page_title = driver.title
     print(iframe_page_title)
 
-    if iframe_page_title != "PAHO/WHO Data - National Dengue fever cases":
-        print("Wrong access")
+    # UPDATED PAGE TITLE CHECK
+    if "Dengue data and analysis" not in iframe_page_title:
+        print("Wrong access or page not loaded correctly.")
         driver.quit()
+        sys.exit(1)
 
     time.sleep(3)
 
