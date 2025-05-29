@@ -154,8 +154,8 @@ def iterate_weekly():
     chrome_options.add_experimental_option("prefs", prefs)
 
     # using undetected-chromedriver
-    driver = uc.Chrome(headless=True, use_subprocess=False, options = chrome_options, version_main=chrome_version)
-    driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
+    driver = uc.Chrome(headless=False, use_subprocess=False, options = chrome_options, version_main=chrome_version)
+    driver.get('https://www.paho.org/en/arbo-portal/dengue-data-and-analysis/dengue-analysis-country')
 
     #driver = webdriver.Chrome(service=Service(), options=chrome_options)  # Ensure chrome_options is defined
     #driver.get('https://www3.paho.org/data/index.php/en/mnu-topics/indicadores-dengue-en/dengue-nacional-en/252-dengue-pais-ano-en.html')
@@ -164,8 +164,8 @@ def iterate_weekly():
     wait = WebDriverWait(driver, 20)
 
     # First iframe
-    iframe_src = "https://ais.paho.org/ha_viz/dengue/nac/dengue_pais_anio_tben.asp"
-    iframe_locator = (By.XPATH, "//div[contains(@class, 'vizTab')]//iframe[@src='" + iframe_src + "']")
+    iframe_src = "https://ais.paho.org/ArboPortal/DENG/1008_NAC_ES_Indicadores_reporte_semanal.asp"
+    iframe_locator = (By.XPATH, f"//iframe[@src='{iframe_src}']")
     iframe = wait.until(EC.presence_of_element_located(iframe_locator))
     driver.switch_to.frame(iframe)
 
@@ -202,7 +202,7 @@ def iterate_weekly():
         sys.exit(1)
 
     # find the year tab
-    year_tab = wait.until(EC.visibility_of_element_located((By.ID, 'tabZoneId13')))
+    year_tab = wait.until(EC.visibility_of_element_located((By.ID, 'tabZoneId16')))
 
     # find the dropdown button within the year tab
     dd_locator = (By.CSS_SELECTOR, 'span.tabComboBoxButton')
@@ -214,8 +214,8 @@ def iterate_weekly():
     shadow_doc2.find_element(By.XPATH, y2024_xpath).click()
 
     # select year 2023
-    y2024_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2023"]/preceding-sibling::input'
-    shadow_doc2.find_element(By.XPATH, y2024_xpath).click()
+    y2023_xpath = '//div[contains(@class, "facetOverflow")]/a[text()="2023"]/preceding-sibling::input'
+    shadow_doc2.find_element(By.XPATH, y2023_xpath).click()
 
     # close the dropdown menu
     dd_close = wait.until(
