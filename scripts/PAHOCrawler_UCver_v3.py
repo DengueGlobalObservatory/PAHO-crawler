@@ -154,7 +154,7 @@ def iterate_weekly():
     chrome_options.add_experimental_option("prefs", prefs)
 
     # using undetected-chromedriver
-    driver = uc.Chrome(headless=False, use_subprocess=False, options = chrome_options, version_main=chrome_version)
+    driver = uc.Chrome(headless=True, use_subprocess=False, options = chrome_options, version_main=chrome_version)
     driver.get('https://www.paho.org/en/arbo-portal/dengue-data-and-analysis/dengue-analysis-country')
 
     #driver = webdriver.Chrome(service=Service(), options=chrome_options)  # Ensure chrome_options is defined
