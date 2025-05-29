@@ -2,13 +2,16 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException # Keep this import, it's correct now
 import time
 import os
 from datetime import datetime
 import subprocess
 import re
 import sys
+
+# --- Define a global default timeout variable ---
+DEFAULT_WAIT_TIMEOUT = 60 # Seconds. You had this value in WebDriverWait(driver, 60)
 
 # Function to get the installed Chrome version
 def get_chrome_version():
@@ -228,15 +231,16 @@ def iterate_weekly():
     chrome_options.add_argument("--single-process")
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-setuid-sandbox")
-    chrome_options.add_argument("--ignore-certificate-errors") # May help with SSL errors on some sites
-    chrome_options.add_argument("--no-zygote") # Sometimes improves stability in Linux containers
+    chrome_options.add_argument("--ignore-certificate-errors")
+    chrome_options.add_argument("--no-zygote")
 
 
     # using undetected-chromedriver
     driver = uc.Chrome(headless=True, use_subprocess=False, options=chrome_options, version_main=chrome_version)
     driver.get('https://www.paho.org/en/arbo-portal/dengue-data-and-analysis/dengue-analysis-country')
 
-    wait = WebDriverWait(driver, 60) # Increased timeout for robustness
+    # Define wait outside the loop. Use the new DEFAULT_WAIT_TIMEOUT.
+    wait = WebDriverWait(driver, DEFAULT_WAIT_TIMEOUT)
 
     iframe_page_title = driver.title
     print(f"Current page title: {iframe_page_title}")
@@ -265,7 +269,8 @@ def iterate_weekly():
         shadow_doc2 = driver
 
     except TimeoutException as e:
-        print(f"Timeout: Iframe with src '{iframe_src}' not found within {wait.timeout} seconds. Error: {e}")
+        # Use DEFAULT_WAIT_TIMEOUT variable here
+        print(f"Timeout: Iframe with src '{iframe_src}' not found within {DEFAULT_WAIT_TIMEOUT} seconds. Error: {e}")
         screenshot_path = os.path.join(downloadPath, f"debug_iframe_timeout_{datetime.now().strftime('%Y%m%d%H%M%S')}.png")
         driver.save_screenshot(screenshot_path)
         print(f"Screenshot taken: {screenshot_path}")
@@ -281,7 +286,8 @@ def iterate_weekly():
         wait.until(EC.presence_of_element_located((By.ID, "dashboard-viewport")))
         print("Dashboard viewport found inside iframe, presuming dashboard loaded correctly.")
     except TimeoutException as e:
-        print(f"Timeout: Dashboard viewport not found inside iframe within {wait.timeout} seconds. Error: {e}")
+        # Use DEFAULT_WAIT_TIMEOUT variable here
+        print(f"Timeout: Dashboard viewport not found inside iframe within {DEFAULT_WAIT_TIMEOUT} seconds. Error: {e}")
         screenshot_path = os.path.join(downloadPath, f"debug_dashboard_viewport_timeout_{datetime.now().strftime('%Y%m%d%H%M%S')}.png")
         shadow_doc2.save_screenshot(screenshot_path) # Use shadow_doc2 for screenshot within iframe
         print(f"Screenshot taken: {screenshot_path}")
@@ -331,7 +337,7 @@ def iterate_weekly():
         ))
         shadow_doc2.execute_script("arguments[0].click();", y2024_input) # Use shadow_doc2 for click
         print("Selected year 2024.")
-        time.sleep(2) # Increased sleep
+        time.sleep(2)
 
         # select year 2023
         y2023_input = wait.until(EC.element_to_be_clickable(
@@ -339,7 +345,7 @@ def iterate_weekly():
         ))
         shadow_doc2.execute_script("arguments[0].click();", y2023_input) # Use shadow_doc2 for click
         print("Selected year 2023.")
-        time.sleep(2) # Increased sleep
+        time.sleep(2)
     except Exception as e:
         print(f"Error selecting years (within iframe): {e}. Ensure the year filter pop-up is visible and elements are correct.")
         driver.quit()
@@ -356,14 +362,11 @@ def iterate_weekly():
         print("Could not find or click 'tab-glass' to close dropdown (within iframe). Attempting to click body.")
         shadow_doc2.find_element(By.TAG_NAME, 'body').click() # Fallback to clicking body
         print("Clicked body to close dropdown.")
-    time.sleep(3) # Keep sleep after closing dropdown
+    time.sleep(3)
 
 
     # Initial call to download_and_rename (for week 53 only)
-    # Pass `shadow_doc2` (which is now the driver object in the iframe)
     print(f"Processing Initial Week Number: 53")
-    # Note: `driver_main_page_ignored` parameter is just a placeholder to match original signature.
-    # We pass `driver` again, but it's not used inside download_and_rename.
     download_and_rename(wait, shadow_doc2, 53, default_dir, downloadPath, driver, year, today)
 
     weeknum = 53  # Initialize weeknum outside the loop
@@ -387,8 +390,7 @@ def iterate_weekly():
             print("Reached week 1, breaking the loop.")
             break
 
-    # VERY IMPORTANT: Switch back to default content if you need to interact with main page elements later
-    # This is good practice before quitting, or if you had more steps on the main page.
+    # Switch back to default content. Good practice, especially if more interactions on main page.
     driver.switch_to.default_content()
 
     driver.quit()
