@@ -32,7 +32,7 @@ jobs:
         run: mkdir -p ${{ github.workspace }}/data
 
       - name: Running the Python script
-        run: python scripts/PAHOCrawler_UCver_v3.py
+        run: python scripts/PAHOCrawler_UCver_v4.py
 
       - name: Commit and Push
         run: |
