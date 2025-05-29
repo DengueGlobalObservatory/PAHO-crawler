@@ -181,7 +181,7 @@ def iterate_weekly():
     print(iframe_page_title)
 
     # UPDATED PAGE TITLE CHECK
-    if "Dengue data and analysis" not in iframe_page_title:
+    if "Dengue: analysis by country" not in iframe_page_title:
         print("Wrong access or page not loaded correctly.")
         driver.quit()
         sys.exit(1)
