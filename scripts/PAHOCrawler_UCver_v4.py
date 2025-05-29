@@ -2,7 +2,7 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException # Keep this import, it's correct now
+from selenium.common.exceptions import TimeoutException
 import time
 import os
 from datetime import datetime
@@ -10,21 +10,20 @@ import subprocess
 import re
 import sys
 
-# --- Define a global default timeout variable ---
-DEFAULT_WAIT_TIMEOUT = 60 # Seconds. You had this value in WebDriverWait(driver, 60)
+# Define a global default timeout variable
+DEFAULT_WAIT_TIMEOUT = 60 # Seconds
 
 # Function to get the installed Chrome version
 def get_chrome_version():
     try:
         if sys.platform == "win32":
-            # Command to retrieve Chrome version from Windows registry
             output = subprocess.check_output(
                 r'reg query "HKEY_CURRENT_USER\Software\Google\Chrome\BLBeacon" /v version',
                 shell=True,
                 text=True
             )
             version = re.search(r'\s+version\s+REG_SZ\s+(\d+)\.', output)
-        else:  # Assuming Linux or other Unix-like systems
+        else:
             for command in ['google-chrome --version', 'google-chrome-stable --version', 'chromium-browser --version']:
                 try:
                     output = subprocess.check_output(command, shell=True, text=True)
@@ -46,7 +45,7 @@ def get_chrome_version():
 # Get the major version of Chrome installed
 chrome_version = get_chrome_version()
 
-# --- Improved move_to_download_folder function ---
+# Improved move_to_download_folder function
 def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtension):
     got_file = False
     start_time = time.time()
@@ -55,7 +54,6 @@ def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtensio
         try:
             files = [os.path.join(default_dir, f) for f in os.listdir(default_dir) if os.path.isfile(os.path.join(default_dir, f))]
 
-            # Filter out temporary download files (e.g., .crdownload, .tmp, .part, .download)
             downloading_files = [f for f in files if f.endswith('.crdownload') or f.endswith('.tmp') or f.endswith('.part') or f.endswith('.download')]
 
             if downloading_files:
@@ -65,10 +63,9 @@ def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtensio
 
             finished_files = [f for f in files if not f.endswith('.crdownload') and not f.endswith('.tmp') and not f.endswith('.part') and not f.endswith('.download')]
             if not finished_files:
-                # No completed files found yet, but check if there are any files at all.
-                if not files and (time.time() - start_time) > 10: # Only raise if no files for a bit
+                if not files and (time.time() - start_time) > 10:
                      raise FileNotFoundError("No files found in the download directory yet.")
-                else: # Wait more if files are still appearing/downloading
+                else:
                     time.sleep(5)
                     continue
 
@@ -77,7 +74,6 @@ def move_to_download_folder(default_dir, downloadPath, newFileName, fileExtensio
             if os.path.exists(currentFile) and not (currentFile.endswith('.crdownload') or currentFile.endswith('.tmp') or currentFile.endswith('.part') or currentFile.endswith('.download')):
                 got_file = True
             else:
-                # File found but still looks like a temp file, or not fully ready
                 raise FileNotFoundError("File not found or still downloading. Retrying...")
 
         except FileNotFoundError as e:
@@ -101,87 +97,84 @@ def download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, d
 
     print(f"Attempting to download for Week Number: {weeknum}")
 
-    # Wait for the week number to update (using shadow_doc2, which is the driver in iframe)
-    weeknum_div = wait.until(
-        EC.presence_of_element_located((By.CLASS_NAME, "sliderText"))
-    )
-    weeknum = int(weeknum_div.text)  # Convert to integer for comparison
+    # Scroll and then interact with the week number slider.
+    # The week number slider is at the top, so it should already be visible,
+    # but let's be explicit for consistency.
+    weeknum_div_locator = (By.CLASS_NAME, "sliderText")
+    weeknum_div = wait.until(EC.presence_of_element_located(weeknum_div_locator))
+    shadow_doc2.execute_script("arguments[0].scrollIntoView({block: 'center'});", weeknum_div)
+    time.sleep(0.5) # Give it a moment to scroll
+
+    weeknum = int(weeknum_div.text)
     print(f"Confirmed Week Number Displayed: {weeknum}")
 
-    # Step 1: Click the "Tabla Anual" tab (Annual Table)
-    # This tab is within the iframe
+    # The 'Tabla Anual' tab is usually at the top, but let's ensure it's in view
+    table_tab_locator = (By.XPATH, "//span[@class='tabLabel' and text()='Tabla Anual']")
     try:
-        table_tab = wait.until(
-            EC.element_to_be_clickable((By.XPATH, "//span[@class='tabLabel' and text()='Tabla Anual']"))
-        )
+        table_tab = wait.until(EC.element_to_be_clickable(table_tab_locator))
+        shadow_doc2.execute_script("arguments[0].scrollIntoView({block: 'center'});", table_tab)
+        time.sleep(0.5)
         table_tab.click()
         print("Clicked 'Tabla Anual' tab.")
-        time.sleep(3) # Give it a moment to load the table view
+        time.sleep(3)
     except Exception as e:
         print(f"Could not click 'Tabla Anual' tab: {e}. Ensure this tab is present and visible.")
-        raise # Critical step, re-raise error if tab not found
+        raise
 
-    # Find and click the download button at the bottom of the dashboard
-    # Using the ID you provided for robustness, and clicking via JS
+    # Download button is at the bottom, so we definitely need to scroll to it.
     download_button_id = "download-ToolbarButton"
-    download_button = wait.until(
-        EC.presence_of_element_located((By.ID, download_button_id))
-    )
+    download_button = wait.until(EC.presence_of_element_located((By.ID, download_button_id)))
 
     try:
         print(f"Attempting to click download button ({download_button_id}) via JS...")
-        # Scroll to ensure it's in view, then click via JS
         shadow_doc2.execute_script("arguments[0].scrollIntoView({block: 'center'});", download_button)
-        time.sleep(0.5) # Short pause after scrolling
+        time.sleep(0.5)
         shadow_doc2.execute_script("arguments[0].click();", download_button)
         print("Clicked download button successfully via JS.")
         time.sleep(5)
     except Exception as e:
         print(f"Failed to click download button ({download_button_id}) via JS: {e}")
-        # Take a screenshot if this critical step fails
         screenshot_path = os.path.join(downloadPath, f"debug_download_button_fail_{datetime.now().strftime('%Y%m%d%H%M%S')}.png")
-        shadow_doc2.save_screenshot(screenshot_path) # Screenshot within the iframe context
+        shadow_doc2.save_screenshot(screenshot_path)
         print(f"Screenshot taken to help debug: {screenshot_path}")
-        raise # Re-raise the exception to stop execution
+        raise
 
-
-    # Find and click the crosstab button (in a pop up window) - LOCATOR REMAINS THE SAME
-    crosstab_button = wait.until(
-        EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-tb-test-id="DownloadCrosstab-Button"]'))
-    )
+    # Crosstab button appears in a pop-up, so it needs to be made visible
+    crosstab_button_locator = (By.CSS_SELECTOR, '[data-tb-test-id="DownloadCrosstab-Button"]')
+    crosstab_button = wait.until(EC.element_to_be_clickable(crosstab_button_locator))
+    shadow_doc2.execute_script("arguments[0].scrollIntoView({block: 'center'});", crosstab_button)
+    time.sleep(0.5)
     crosstab_button.click()
     print("Clicked Crosstab button.")
     time.sleep(5)
 
-    # Find and select the CSV option - LOCATOR REMAINS THE SAME
-    csv_div = wait.until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='radio'][value='csv']"))
-    )
-    shadow_doc2.execute_script("arguments[0].scrollIntoView();", csv_div)
+    # CSV option is in the pop-up, ensure it's in view
+    csv_div_locator = (By.CSS_SELECTOR, "input[type='radio'][value='csv']")
+    csv_div = wait.until(EC.presence_of_element_located(csv_div_locator))
+    shadow_doc2.execute_script("arguments[0].scrollIntoView({block: 'center'});", csv_div)
+    time.sleep(0.5)
     shadow_doc2.execute_script("arguments[0].click();", csv_div)
     print("Selected CSV option.")
     time.sleep(5)
 
-    # Find and click the export button - LOCATOR REMAINS THE SAME
-    export_button = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tb-test-id="export-crosstab-export-Button"]')))
+    # Export button is in the pop-up, ensure it's in view
+    export_button_locator = (By.CSS_SELECTOR, '[data-tb-test-id="export-crosstab-export-Button"]')
+    export_button = wait.until(EC.presence_of_element_located(export_button_locator))
 
-    # Click via JavaScript for robustness (similar to download button)
     try:
         print("Attempting to scroll export button into view and click via JS...")
         shadow_doc2.execute_script("arguments[0].scrollIntoView({block: 'center'});", export_button)
-        time.sleep(0.5) # Small pause after scrolling
+        time.sleep(0.5)
         shadow_doc2.execute_script("arguments[0].click();", export_button)
         print("Downloading CSV file")
         time.sleep(5)
     except Exception as e:
         print(f"Failed to click export button even with scrolling and JS click: {e}")
         screenshot_path = os.path.join(downloadPath, f"debug_export_button_click_fail_{datetime.now().strftime('%Y%m%d%H%M%S')}.png")
-        shadow_doc2.save_screenshot(screenshot_path) # Screenshot within iframe context
+        shadow_doc2.save_screenshot(screenshot_path)
         print(f"Screenshot taken to help debug: {screenshot_path}")
-        raise # Re-raise the exception to stop execution
+        raise
 
-
-    # Use the move_to_download_folder function to move the downloaded file
     downloadPath = downloadPath
     default_dir = default_dir
     newFileName = f"PAHO_2023_2025_W{weeknum}_{today}"
@@ -195,7 +188,6 @@ def iterate_weekly():
     year = "(All)"
     today = datetime.now().strftime('%Y%m%d%H%M')
 
-    # set directory
     github_workspace = os.getenv('GITHUB_WORKSPACE')
     if github_workspace:
         base_data_path = os.path.join(github_workspace, 'data')
@@ -210,7 +202,6 @@ def iterate_weekly():
     downloadPath = os.path.join(base_data_path, today_directory_name)
     os.makedirs(downloadPath, exist_ok=True)
 
-    # set chrome download directory
     chrome_options = uc.ChromeOptions()
     prefs = {
         "download.default_directory": default_dir,
@@ -220,7 +211,6 @@ def iterate_weekly():
     }
     chrome_options.add_experimental_option("prefs", prefs)
 
-    # Add more robust arguments for headless execution on CI/CD
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=1920,1080")
@@ -235,17 +225,14 @@ def iterate_weekly():
     chrome_options.add_argument("--no-zygote")
 
 
-    # using undetected-chromedriver
     driver = uc.Chrome(headless=True, use_subprocess=False, options=chrome_options, version_main=chrome_version)
     driver.get('https://www.paho.org/en/arbo-portal/dengue-data-and-analysis/dengue-analysis-country')
 
-    # Define wait outside the loop. Use the new DEFAULT_WAIT_TIMEOUT.
     wait = WebDriverWait(driver, DEFAULT_WAIT_TIMEOUT)
 
     iframe_page_title = driver.title
     print(f"Current page title: {iframe_page_title}")
 
-    # FIX: Corrected page title check to match actual title from output
     if "Dengue: analysis by country" not in iframe_page_title:
         print("Wrong access: Page title does not match expected. Exiting.")
         driver.quit()
@@ -253,23 +240,23 @@ def iterate_weekly():
     else:
         print("Page title confirmed.")
 
-    time.sleep(7) # Increased sleep after main page load to allow JavaScript to process
+    time.sleep(7)
 
-    # --- Simplified Iframe Switching ---
     iframe_src = "https://ais.paho.org/ArboPortal/DENG/1008_NAC_ES_Indicadores_reporte_semanal.asp"
     iframe_locator = (By.XPATH, f"//iframe[@src='{iframe_src}']")
 
     try:
         print(f"Attempting to switch to iframe with src: {iframe_src}")
-        iframe = wait.until(EC.presence_of_element_located(iframe_locator))
-        driver.switch_to.frame(iframe)
+        iframe_element_on_main_page = wait.until(EC.presence_of_element_located(iframe_locator))
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", iframe_element_on_main_page)
+        time.sleep(2)
+
+        driver.switch_to.frame(iframe_element_on_main_page)
         print("Switched to iframe successfully.")
 
-        # Assign driver to shadow_doc2 to maintain original script's variable name for iframe context
         shadow_doc2 = driver
 
     except TimeoutException as e:
-        # Use DEFAULT_WAIT_TIMEOUT variable here
         print(f"Timeout: Iframe with src '{iframe_src}' not found within {DEFAULT_WAIT_TIMEOUT} seconds. Error: {e}")
         screenshot_path = os.path.join(downloadPath, f"debug_iframe_timeout_{datetime.now().strftime('%Y%m%d%H%M%S')}.png")
         driver.save_screenshot(screenshot_path)
@@ -283,13 +270,20 @@ def iterate_weekly():
 
     # Confirm dashboard elements loaded within the iframe
     try:
-        wait.until(EC.presence_of_element_located((By.ID, "dashboard-viewport")))
+        time.sleep(7)
+        dashboard_viewport = wait.until(EC.presence_of_element_located((By.ID, "dashboard-viewport")))
         print("Dashboard viewport found inside iframe, presuming dashboard loaded correctly.")
+
+        # --- REMOVED: Blanket scroll to bottom, replaced by targeted scrolls ---
+        # print("Scrolling to the bottom of the iframe content...")
+        # shadow_doc2.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        # time.sleep(3)
+        # print("Scrolled to bottom.")
+
     except TimeoutException as e:
-        # Use DEFAULT_WAIT_TIMEOUT variable here
         print(f"Timeout: Dashboard viewport not found inside iframe within {DEFAULT_WAIT_TIMEOUT} seconds. Error: {e}")
         screenshot_path = os.path.join(downloadPath, f"debug_dashboard_viewport_timeout_{datetime.now().strftime('%Y%m%d%H%M%S')}.png")
-        shadow_doc2.save_screenshot(screenshot_path) # Use shadow_doc2 for screenshot within iframe
+        shadow_doc2.save_screenshot(screenshot_path)
         print(f"Screenshot taken: {screenshot_path}")
         driver.quit()
         sys.exit(1)
@@ -298,24 +292,25 @@ def iterate_weekly():
         driver.quit()
         sys.exit(1)
 
-    time.sleep(5) # Added extra sleep after dashboard is confirmed present
+    time.sleep(5)
 
-    # --- Find and click the year dropdown opener ---
-    # LOCATOR WITHIN IFRAME CONTEXT, using JS click for robustness
     year_filter_container_id = 'tabZoneId16'
 
     try:
-        wait.until(EC.presence_of_element_located((By.ID, year_filter_container_id)))
+        # Year filter is at the top, scroll to it if necessary
+        year_filter_container = wait.until(EC.presence_of_element_located((By.ID, year_filter_container_id)))
+        shadow_doc2.execute_script("arguments[0].scrollIntoView({block: 'center'});", year_filter_container)
+        time.sleep(0.5)
+
         print(f"Year filter container ({year_filter_container_id}) is present in iframe DOM.")
 
         year_dropdown_opener_locator = (By.XPATH, f"//div[@id='{year_filter_container_id}']//div[contains(@class, 'tabComboBoxNameContainer')]")
         year_dropdown_opener = wait.until(EC.visibility_of_element_located(year_dropdown_opener_locator))
         print(f"Year dropdown opener is visible within iframe.")
 
-        # Click via JavaScript
         shadow_doc2.execute_script("arguments[0].click();", year_dropdown_opener)
         print("Clicked 'tabComboBoxNameContainer' div to open Year dropdown via JS.")
-        time.sleep(3) # Increased sleep after clicking to allow dropdown to fully render
+        time.sleep(3)
 
     except TimeoutException as e:
         screenshot_path = os.path.join(downloadPath, f"debug_year_dropdown_iframe_timeout_{datetime.now().strftime('%Y%m%d%H%M%S')}.png")
@@ -330,20 +325,18 @@ def iterate_weekly():
         sys.exit(1)
 
 
-    # select year 2024 - LOCATOR WITHIN IFRAME CONTEXT
     try:
         y2024_input = wait.until(EC.element_to_be_clickable(
             (By.XPATH, '//div[contains(@class, "facetOverflow")]//a[text()="2024"]/preceding-sibling::input')
         ))
-        shadow_doc2.execute_script("arguments[0].click();", y2024_input) # Use shadow_doc2 for click
+        shadow_doc2.execute_script("arguments[0].click();", y2024_input)
         print("Selected year 2024.")
         time.sleep(2)
 
-        # select year 2023
         y2023_input = wait.until(EC.element_to_be_clickable(
             (By.XPATH, '//div[contains(@class, "facetOverflow")]//a[text()="2023"]/preceding-sibling::input')
         ))
-        shadow_doc2.execute_script("arguments[0].click();", y2023_input) # Use shadow_doc2 for click
+        shadow_doc2.execute_script("arguments[0].click();", y2023_input)
         print("Selected year 2023.")
         time.sleep(2)
     except Exception as e:
@@ -351,52 +344,48 @@ def iterate_weekly():
         driver.quit()
         sys.exit(1)
 
-    # close the dropdown menu - LOCATOR WITHIN IFRAME CONTEXT
     try:
         dd_close = wait.until(
             EC.element_to_be_clickable((By.CLASS_NAME, "tab-glass"))
         )
-        shadow_doc2.execute_script("arguments[0].click();", dd_close) # Use shadow_doc2 for click
+        shadow_doc2.execute_script("arguments[0].click();", dd_close)
         print("Closed year dropdown menu.")
     except Exception:
         print("Could not find or click 'tab-glass' to close dropdown (within iframe). Attempting to click body.")
-        shadow_doc2.find_element(By.TAG_NAME, 'body').click() # Fallback to clicking body
+        shadow_doc2.find_element(By.TAG_NAME, 'body').click()
         print("Clicked body to close dropdown.")
     time.sleep(3)
 
 
-    # Initial call to download_and_rename (for week 53 only)
     print(f"Processing Initial Week Number: 53")
     download_and_rename(wait, shadow_doc2, 53, default_dir, downloadPath, driver, year, today)
 
-    weeknum = 53  # Initialize weeknum outside the loop
+    weeknum = 53
     while weeknum > 0:
         print(f"Processing Week Number: {weeknum-1}")
 
-        # Decrement button - LOCATOR WITHIN IFRAME CONTEXT
-        decrement_button = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//div[@id='tabZoneId7']//div[contains(@class, 'tableauArrowDec')]")
-        ))
-        shadow_doc2.execute_script("arguments[0].click();", decrement_button) # Use shadow_doc2 for click
+        # Decrement button - LOCATOR WITHIN IFRAME CONTEXT, ensure it's in view
+        decrement_button_locator = (By.XPATH, "//div[@id='tabZoneId7']//div[contains(@class, 'tableauArrowDec')]")
+        decrement_button = wait.until(EC.element_to_be_clickable(decrement_button_locator))
+        shadow_doc2.execute_script("arguments[0].scrollIntoView({block: 'center'});", decrement_button)
+        time.sleep(0.5)
+
+        shadow_doc2.execute_script("arguments[0].click();", decrement_button)
         time.sleep(3)
 
-        # Update weeknum after decrementing
         weeknum -= 1
 
-        # Pass updated weeknum to download_and_rename
         download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, driver, year, today)
 
         if weeknum == 1:
             print("Reached week 1, breaking the loop.")
             break
 
-    # Switch back to default content. Good practice, especially if more interactions on main page.
     driver.switch_to.default_content()
 
     driver.quit()
     print("Script finished successfully.")
 
-# Execute the main function
 if __name__ == "__main__":
     try:
         iterate_weekly()
