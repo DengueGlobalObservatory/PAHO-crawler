@@ -130,10 +130,23 @@ def download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, d
 def iterate_weekly():
     year = "2023_2025"
     today = datetime.now().strftime('%Y%m%d%H%M')
-    base_data_path = os.getenv('GITHUB_WORKSPACE', os.path.join(os.getcwd(), 'data'))
+
+    # More robust way to get the base data path
+    if os.getenv('GITHUB_WORKSPACE'):
+        # Running in GitHub Actions
+        base_data_path = os.path.join(os.getenv('GITHUB_WORKSPACE'), 'data')
+    else:
+        # Running locally
+        base_data_path = os.path.join(os.getcwd(), 'data')
+
+    # Ensure the base data directory exists
+    os.makedirs(base_data_path, exist_ok=True)
+
+    # Create temp downloads directory
     default_dir = os.path.join(os.getcwd(), "temp_downloads")
     os.makedirs(default_dir, exist_ok=True)
 
+    # Create the download path within the data directory
     downloadPath = os.path.join(base_data_path, f"DL_{datetime.now().strftime('%Y%m%d')}")
     os.makedirs(downloadPath, exist_ok=True)
 
