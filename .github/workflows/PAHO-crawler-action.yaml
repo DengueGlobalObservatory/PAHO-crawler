@@ -32,16 +32,29 @@ jobs:
         run: mkdir -p ${{ github.workspace }}/data
 
       - name: Running the Python script
-        run: python scripts/PAHOCrawler_UCver_v4.py
+        run: python scripts/PAHOCrawler_UCver_v5.py
+
+      - name: Upload debug screenshots
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: debug-screenshots
+          path: ./debug_*.png  # Specify current directory explicitly
+          if-no-files-found: ignore
+
+      - name: Clean up temp downloads
+        if: always()
+        run: rm -rf temp_downloads/
+
+      - name: Clean up debug screenshots (don't commit them)
+        if: always()
+        run: rm -f debug_*.png
 
       - name: Commit and Push
         run: |
-         git config --global user.name "github-actions[bot]"
-         git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-         git add -A
-         timestamp=$(date -u)
-         git commit -am "Latest data: ${timestamp}" || exit 0
-         git push
-
-
-
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/  # Only add data directory, not everything
+          timestamp=$(date -u)
+          git commit -m "Latest data: ${timestamp}" || exit 0
+          git push
