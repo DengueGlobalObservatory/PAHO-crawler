@@ -55,23 +55,48 @@ jobs:
         if: always()
         run: rm -rf temp_downloads/
 
-      - name: Clean up debug screenshots (don't commit them)
-        if: always()
-        run: rm -f debug_*.png
-
-      - name: Commit and Push
+      - name: Commit CSV files (on success)
+        if: success()
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Check if there are any changes to commit
+          # Check if there are any CSV changes to commit
           if [[ `git status --porcelain` ]]; then
-            echo "Changes detected, committing..."
+            echo "Success: Committing CSV files only..."
             git status
-            git add data/
+
+            # Add only CSV files and data directories
+            git add "*.csv" "**/*.csv" data/ DL_*/ 2>/dev/null || true
+
             timestamp=$(date -u)
             git commit -m "Latest data: ${timestamp}"
             git push
           else
-            echo "No changes to commit"
+            echo "No CSV changes to commit"
           fi
+
+      - name: Commit debug screenshots (on failure)
+        if: failure()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Check if there are debug screenshots to commit
+          if ls debug_*.png 1> /dev/null 2>&1; then
+            echo "Failure: Committing debug screenshots for troubleshooting..."
+            git status
+
+            # Add only debug screenshots
+            git add debug_*.png
+
+            timestamp=$(date -u)
+            git commit -m "Debug screenshots from failed run: ${timestamp}"
+            git push
+          else
+            echo "No debug screenshots to commit"
+          fi
+
+      - name: Clean up debug screenshots (don't leave them around)
+        if: always()
+        run: rm -f debug_*.png
