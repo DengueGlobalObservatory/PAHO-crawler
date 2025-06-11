@@ -67,7 +67,7 @@ jobs:
             git status
 
             # Add only CSV files and data directories
-            git add "*.csv" "**/*.csv" data/ DL_*/ 2>/dev/null || true
+            git add -A data/
 
             timestamp=$(date -u)
             git commit -m "Latest data: ${timestamp}"
