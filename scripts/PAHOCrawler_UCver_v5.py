@@ -1,13 +1,9 @@
 import undetected_chromedriver as uc
-#from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
-
-#from selenium.webdriver.chrome.options import Options
-#from selenium.webdriver.chrome.service import Service
 import time
 import os
 from datetime import datetime
@@ -104,9 +100,6 @@ def download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, d
     time.sleep(5)
 
     # Find and select the CSV option
-    #csv_div = wait.until(
-    #    EC.element_to_be_clickable((By.CSS_SELECTOR, "input[type='radio'][value='csv']"))
-    #)
     csv_div = shadow_doc2.find_element(By.CSS_SELECTOR, "input[type='radio'][value='csv']")
     #driver.execute_script("arguments[0].scrollIntoView();", csv_div)
     driver.execute_script("arguments[0].click();", csv_div)
@@ -157,6 +150,7 @@ def iterate_weekly():
         "download.directory_upgrade": True,
         "plugins.always_open_pdf_externally": True
     })
+
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
