@@ -1,102 +1,268 @@
-name: PAHO web crawling on Github Action
+name: PAHO Web Crawling on GitHub Actions
 on:
   workflow_dispatch:
   schedule:
     - cron: '00 08 * * *' # 08:00 am UTC every day
 
 jobs:
-  Scraping_data:
+  scraping_data:
     runs-on: ubuntu-latest
+    timeout-minutes: 45 # Prevent infinite hanging
+
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
+
       - name: Setting up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.12.3'
-      - name: Install Google Chrome Stable # STEP 1: Install Chrome
+          cache: 'pip'
+
+      - name: Install system dependencies and Chrome
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y google-chrome-stable
-          google-chrome-stable --version # Verify installation
+          sudo apt-get install -y \
+            google-chrome-stable \
+            xvfb \
+            fonts-liberation \
+            libasound2 \
+            libatk-bridge2.0-0 \
+            libdrm2 \
+            libgtk-3-0 \
+            libnspr4 \
+            libnss3 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxrandr2 \
+            xdg-utils \
+            libxss1 \
+            libgconf-2-4
 
-      - name: Install dependencies
+          echo "Chrome version installed:"
+          google-chrome-stable --version
+
+          echo "Setting up virtual display..."
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
+          sleep 3
+
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install selenium
-          pip install undetected_chromedriver
-          pip install setuptools
-          pip install webdriver_manager
+          pip install --no-cache-dir \
+            selenium==4.15.2 \
+            undetected-chromedriver==3.5.4 \
+            setuptools \
+            webdriver-manager
 
-      - name: Create data directory
-        run: mkdir -p ${{ github.workspace }}/data
-
-      - name: Running the Python script
-        run: python scripts/PAHOCrawler_UCver_v5.py
-
-      - name: Debug - Check what files were created
+      - name: Create necessary directories
         run: |
-          echo "Contents of data directory:"
-          find ${{ github.workspace }}/data -type f -name "*.csv" | head -10
-          echo "Total CSV files in data directory:"
-          find ${{ github.workspace }}/data -type f -name "*.csv" | wc -l
-          echo "Directory structure:"
-          ls -la ${{ github.workspace }}/data/
+          mkdir -p ${{ github.workspace }}/data
+          mkdir -p ${{ github.workspace }}/temp_downloads
+          chmod 755 ${{ github.workspace }}/data
+          chmod 755 ${{ github.workspace }}/temp_downloads
 
-      - name: Upload debug screenshots
+      - name: Check environment and system resources
+        run: |
+          echo "=== System Information ==="
+          uname -a
+          echo "=== Memory Information ==="
+          free -h
+          echo "=== Disk Space ==="
+          df -h
+          echo "=== Chrome Location ==="
+          which google-chrome-stable
+          echo "=== Environment Variables ==="
+          echo "GITHUB_WORKSPACE: ${{ github.workspace }}"
+          echo "DISPLAY: $DISPLAY"
+          echo "=== Current Directory ==="
+          pwd
+          ls -la
+
+      - name: Run PAHO crawler with enhanced error handling
+        id: crawler
+        env:
+          DISPLAY: :99
+          PYTHONUNBUFFERED: 1
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+        run: |
+          echo "Starting PAHO crawler..."
+          timeout 40m python scripts/PAHOCrawler_UCver_v5.py 2>&1 | tee crawler_output.log
+          echo "Crawler completed with exit code: $?"
+
+      - name: Check crawler results
+        if: always()
+        run: |
+          echo "=== Crawler Output Log ==="
+          if [ -f crawler_output.log ]; then
+            echo "Last 50 lines of crawler output:"
+            tail -50 crawler_output.log
+          else
+            echo "No crawler output log found"
+          fi
+
+          echo "=== Data Directory Contents ==="
+          if [ -d "${{ github.workspace }}/data" ]; then
+            find ${{ github.workspace }}/data -type f -name "*.csv" | head -10
+            echo "Total CSV files: $(find ${{ github.workspace }}/data -type f -name "*.csv" | wc -l)"
+            echo "Directory structure:"
+            ls -la ${{ github.workspace }}/data/
+
+            # Show file sizes to ensure downloads completed
+            echo "=== CSV File Sizes ==="
+            find ${{ github.workspace }}/data -name "*.csv" -exec ls -lh {} \;
+          else
+            echo "Data directory not found"
+          fi
+
+          echo "=== Temp Downloads ==="
+          if [ -d "temp_downloads" ]; then
+            echo "Temp downloads directory contents:"
+            ls -la temp_downloads/
+          else
+            echo "Temp downloads directory not found"
+          fi
+
+      - name: Validate downloaded files
+        if: always()
+        run: |
+          csv_count=$(find ${{ github.workspace }}/data -name "*.csv" | wc -l)
+          echo "Found $csv_count CSV files"
+
+          if [ $csv_count -gt 0 ]; then
+            echo "SUCCESS: At least some CSV files were downloaded"
+
+            # Check if any files are suspiciously small (might be error pages)
+            echo "=== Checking file sizes ==="
+            find ${{ github.workspace }}/data -name "*.csv" -size -1k -exec echo "Warning: Small file found: {}" \;
+
+            # Sample a few files to check content
+            echo "=== Sample file contents ==="
+            for file in $(find ${{ github.workspace }}/data -name "*.csv" | head -3); do
+              echo "File: $file"
+              echo "Size: $(stat -f%z "$file" 2>/dev/null || stat -c%s "$file")"
+              echo "First few lines:"
+              head -5 "$file" || echo "Could not read file"
+              echo "---"
+            done
+          else
+            echo "ERROR: No CSV files were downloaded"
+            exit 1
+          fi
+
+      - name: Upload crawler logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crawler-logs-${{ github.run_number }}
+          path: |
+            crawler_output.log
+            debug_*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload debug screenshots on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: debug-screenshots
+          name: debug-screenshots-${{ github.run_number }}
           path: ./debug_*.png
           if-no-files-found: ignore
+          retention-days: 14
 
-      - name: Clean up temp downloads
+      - name: Clean up temporary files
         if: always()
-        run: rm -rf temp_downloads/
+        run: |
+          echo "Cleaning up temporary files..."
+          rm -rf temp_downloads/ || true
+          rm -f debug_*.png || true
+          rm -f crawler_output.log || true
 
-      - name: Commit CSV files (on success)
+      - name: Commit and push CSV files (on success)
         if: success()
         run: |
+          echo "Setting up git configuration..."
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Check if there are any CSV changes to commit
-          if [[ `git status --porcelain` ]]; then
-            echo "Success: Committing CSV files only..."
-            git status
+          # Check if there are any changes to commit
+          git add data/
 
-            # Add only CSV files and data directories
-            git add -A data/
-
-            timestamp=$(date -u)
-            git commit -m "Latest data: ${timestamp}"
-            git push
+          if git diff --staged --quiet; then
+            echo "No new CSV files to commit"
           else
-            echo "No CSV changes to commit"
+            echo "Committing new CSV files..."
+            git status --porcelain
+
+            timestamp=$(date -u "+%Y-%m-%d %H:%M:%S UTC")
+            csv_count=$(find data/ -name "*.csv" | wc -l)
+
+            git commit -m "📊 Update PAHO data: ${csv_count} CSV files - ${timestamp}
+
+            - Automated update from GitHub Actions
+            - Run ID: ${{ github.run_id }}
+            - Workflow: ${{ github.workflow }}"
+
+            echo "Pushing changes..."
+            git push
+            echo "Successfully pushed $csv_count CSV files"
           fi
 
-      - name: Commit debug screenshots (on failure)
+      - name: Handle failure case
         if: failure()
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          echo "=== Failure Analysis ==="
+          echo "Job failed at step: ${{ job.status }}"
+          echo "Runner OS: ${{ runner.os }}"
+          echo "GitHub ref: ${{ github.ref }}"
+          echo "GitHub event: ${{ github.event_name }}"
 
-          # Check if there are debug screenshots to commit
-          if ls debug_*.png 1> /dev/null 2>&1; then
-            echo "Failure: Committing debug screenshots for troubleshooting..."
-            git status
+          # Check system resources at failure
+          echo "=== System Resources at Failure ==="
+          free -h || true
+          df -h || true
 
-            # Add only debug screenshots
-            git add debug_*.png
+          # Check for any remaining processes
+          echo "=== Running Processes ==="
+          ps aux | grep -E "(chrome|chromedriver)" || true
 
-            timestamp=$(date -u)
-            git commit -m "Debug screenshots from failed run: ${timestamp}"
-            git push
-          else
-            echo "No debug screenshots to commit"
+          # Attempt to save any partial data
+          if [ -d "data" ] && [ "$(find data -name "*.csv" | wc -l)" -gt 0 ]; then
+            echo "Found some CSV files, attempting to commit partial results..."
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/
+
+            if ! git diff --staged --quiet; then
+              timestamp=$(date -u "+%Y-%m-%d %H:%M:%S UTC")
+              csv_count=$(find data/ -name "*.csv" | wc -l)
+
+              git commit -m "⚠️ Partial PAHO data (job failed): ${csv_count} CSV files - ${timestamp}
+
+              - Job failed but some data was collected
+              - Run ID: ${{ github.run_id }}
+              - Check artifacts for debugging info" || true
+
+              git push || true
+              echo "Committed partial results: $csv_count files"
+            fi
           fi
 
-      - name: Clean up debug screenshots (don't leave them around)
+      - name: Summary
         if: always()
-        run: rm -f debug_*.png
+        run: |
+          echo "=== Job Summary ==="
+          echo "Job status: ${{ job.status }}"
+          echo "CSV files found: $(find data/ -name "*.csv" 2>/dev/null | wc -l)"
+          echo "Total data size: $(du -sh data/ 2>/dev/null || echo "0B")"
+          echo "Run duration: Completed at $(date)"
+
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ PAHO crawler completed successfully!"
+          else
+            echo "❌ PAHO crawler encountered issues. Check logs and artifacts for details."
+          fi
