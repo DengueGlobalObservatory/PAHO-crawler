@@ -128,7 +128,9 @@ def download_and_rename(wait, shadow_doc2, weeknum, default_dir, downloadPath, d
 
 
 def iterate_weekly():
-    year = "2023_2025"
+    current_year = datetime.now().year
+    year = f"{current_year - 2}_{current_year}"
+
     today = datetime.now().strftime('%Y%m%d%H%M')
 
     # More robust way to get the base data path
@@ -262,7 +264,7 @@ def iterate_weekly():
         time.sleep(5)
 
         # Select specific years using helper function
-        years_to_select = ['2025', '2024', '2023']
+        years_to_select = [str(datetime.now().year - i) for i in range(3)]
         for year_select in years_to_select:
             print(f"Attempting to select year: {year_select}")
             success = click_tableau_element(shadow_doc2, year_select, "year")
